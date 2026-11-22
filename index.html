@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShelfSafe: expiry and stock tracker for pharmacies</title>
+  <meta name="description" content="Track drug expiry dates, stock levels and reorder points in a community pharmacy. Works offline with on-device AI.">
+  <meta name="theme-color" content="#0F6B4F">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F6B4F'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='white'/%3E%3C/svg%3E">
+  <style>
+/* ShelfSafe: white shelf, ink text, pharmacy green.
+   Expiry status colours are used only for expiry, and always with words. */
+:root {
+  --paper: #FFFFFF;
+  --shelf: #F3F6F5;
+  --rule: #D9E1DE;
+  --ink: #1C2B27;
+  --ink-soft: #55645F;
+  --green: #0F6B4F;
+  --green-dark: #0A5039;
+
+  --expired: #B42318;
+  --expired-bg: #FDECEA;
+  --m3: #B54708;
+  --m3-bg: #FEF0E3;
+  --m6: #8A6A00;
+  --m6-bg: #FFF7D6;
+  --ok: #2F6B4A;
+  --ok-bg: #EAF4EE;
+
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --step--1: 0.875rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.6rem;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+}
+a { color: var(--green); }
+:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+.brand {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-weight: 700; font-size: var(--step-1); color: var(--ink); text-decoration: none;
+}
+.brand-mark { width: 28px; height: 28px; }
+.brand-mark rect { fill: var(--green); }
+.brand-mark path { fill: #fff; }
+
+.tabs { display: flex; gap: 0.25rem; }
+.tabs a {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.8rem; border-radius: var(--radius);
+  color: var(--ink-soft); text-decoration: none; font-weight: 600;
+}
+.tabs a[aria-current="page"] { color: var(--green); background: var(--ok-bg); }
+.tab-count {
+  min-width: 1.4rem; padding: 0 0.35rem; border-radius: 999px;
+  background: var(--m3); color: #fff; font-size: 0.75rem; text-align: center;
+}
+
+/* Phones: tabs move to the bottom, where thumbs are */
+@media (max-width: 640px) {
+  .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    justify-content: space-around;
+    padding: 0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom));
+    background: var(--paper); border-top: 1px solid var(--rule);
+  }
+  .tabs a { flex: 1; justify-content: center; padding: 0.6rem 0.25rem; }
+  main { padding-bottom: 5.5rem !important; }
+}
+
+main {
+  max-width: 760px; margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+  outline: none;
+}
+h1 { font-size: var(--step-2); line-height: 1.2; margin: 0 0 0.25rem; }
+h2 { font-size: var(--step-1); margin: 2rem 0 0.5rem; }
+.lede { color: var(--ink-soft); margin: 0 0 1.25rem; max-width: 62ch; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 44px; padding: 0.55rem 1rem;
+  font: inherit; font-weight: 600;
+  border-radius: var(--radius); border: 1px solid var(--green);
+  background: var(--green); color: #fff; text-decoration: none; cursor: pointer;
+}
+.btn:hover { background: var(--green-dark); }
+.btn-quiet { background: var(--paper); color: var(--green); }
+.btn-quiet:hover { background: var(--ok-bg); }
+.btn-small { min-height: 36px; padding: 0.3rem 0.7rem; font-size: var(--step--1); }
+.btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* Reminder banner */
+.banner {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.9rem 1rem; margin-bottom: 1.25rem;
+  border-left: 5px solid var(--m3); background: var(--m3-bg); border-radius: var(--radius);
+}
+.banner.is-expired { border-left-color: var(--expired); background: var(--expired-bg); }
+.banner p { margin: 0; font-weight: 600; }
+
+/* Status filter */
+.filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+.filter {
+  font: inherit; font-size: var(--step--1); font-weight: 600;
+  min-height: 36px; padding: 0.3rem 0.75rem; border-radius: 999px;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer;
+}
+.filter[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+.search {
+  width: 100%; min-height: 44px; padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+  font: inherit; border: 1px solid var(--rule); border-radius: var(--radius);
+}
+
+/* Ledger list: ruled rows like a bin card, not floating cards */
+.ledger { list-style: none; margin: 0; padding: 0; border-top: 2px solid var(--ink); }
+.ledger > li { border-bottom: 1px solid var(--rule); }
+.row {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 1rem; align-items: center;
+  padding: 0.85rem 0.25rem; color: inherit; text-decoration: none;
+}
+a.row:hover { background: var(--shelf); }
+.row-title { font-weight: 650; }
+.row-meta { grid-column: 1; color: var(--ink-soft); font-size: var(--step--1); }
+.row-side { grid-column: 2; grid-row: 1 / span 2; text-align: right; }
+
+/* The expiry stamp: the date as it is printed on the pack */
+.stamp {
+  display: inline-flex; flex-direction: column; align-items: center;
+  min-width: 5.6rem; padding: 0.2rem 0.55rem 0.3rem;
+  border: 2px solid currentColor; border-radius: 6px;
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.stamp small { font-size: 0.7rem; font-weight: 600; opacity: 0.85; }
+.stamp strong { font-size: 1.15rem; letter-spacing: 0.04em; }
+.status-text { display: block; margin-top: 0.2rem; font-size: 0.78rem; font-weight: 600; }
+.s-expired { color: var(--expired); }
+.s-m3 { color: var(--m3); }
+.s-m6 { color: var(--m6); }
+.s-ok { color: var(--ok); }
+.stamp.s-expired { background: var(--expired-bg); }
+.stamp.s-m3 { background: var(--m3-bg); }
+.stamp.s-m6 { background: var(--m6-bg); }
+.stamp.s-ok { background: var(--ok-bg); }
+
+.empty { padding: 2rem 0.25rem; color: var(--ink-soft); }
+
+/* Product detail */
+.back { display: inline-block; margin-bottom: 0.75rem; font-weight: 600; text-decoration: none; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.fact { padding: 0.75rem; background: var(--shelf); border-radius: var(--radius); }
+.fact span { display: block; font-size: var(--step--1); color: var(--ink-soft); }
+.fact strong { font-size: var(--step-1); font-variant-numeric: tabular-nums; }
+
+.table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table th, .table td { text-align: left; padding: 0.6rem 0.4rem; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.table th { font-size: var(--step--1); color: var(--ink-soft); font-weight: 600; border-bottom: 2px solid var(--ink); }
+.table td.num, .table th.num { text-align: right; }
+.fefo-tag { display: inline-block; margin-left: 0.4rem; padding: 0 0.4rem; border-radius: 4px; background: var(--ink); color: #fff; font-size: 0.72rem; font-weight: 600; }
+
+.supplier-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem 0; }
+.supplier-line p { margin: 0; }
+.supplier-line .phone { color: var(--ink-soft); font-size: var(--step--1); }
+
+/* Reminders */
+.group-head { display: flex; align-items: baseline; gap: 0.6rem; margin: 2rem 0 0.25rem; }
+.group-head h2 { margin: 0; }
+.group-head .count { color: var(--ink-soft); }
+.group-note { margin: 0 0 0.5rem; color: var(--ink-soft); font-size: var(--step--1); }
+.reminder { padding: 0.85rem 0.25rem; }
+.reminder-top { display: grid; grid-template-columns: 1fr auto; gap: 0.75rem; align-items: start; }
+.reminder .btn-row { margin-top: 0.6rem; }
+
+/* Forms */
+.form { display: grid; gap: 0.75rem; max-width: 460px; margin-top: 0.5rem; }
+.form label { display: grid; gap: 0.25rem; font-weight: 600; font-size: var(--step--1); }
+.form input, .form select {
+  min-height: 44px; padding: 0.5rem 0.7rem; font: inherit; font-weight: 400;
+  border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper);
+}
+
+.footnote { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: var(--step--1); }
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%); z-index: 20;
+  padding: 0.7rem 1.1rem; border-radius: var(--radius);
+  background: var(--ink); color: #fff; font-weight: 600; max-width: calc(100% - 2rem);
+}
+@media (max-width: 640px) { .toast { bottom: 5.5rem; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: rise 180ms ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+}
+
+/* Batch lines under each product on the stock list */
+.batch-lines { grid-column: 1 / -1; list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.15rem; }
+.batch-line {
+  display: grid; grid-template-columns: 5rem 1fr auto auto; gap: 0.75rem;
+  font-size: var(--step--1); font-variant-numeric: tabular-nums;
+  padding: 0.2rem 0.5rem; background: var(--shelf); border-radius: 4px;
+}
+.batch-name { font-weight: 650; }
+.batch-date { color: var(--ink-soft); }
+.batch-qty { text-align: right; }
+.batch-exp { font-weight: 650; min-width: 6.5rem; text-align: right; }
+@media (max-width: 640px) {
+  .batch-line { grid-template-columns: 4.3rem 1fr auto; }
+  .batch-qty { display: none; }
+}
+
+/* Suppliers */
+.supplier-block { padding: 0.5rem 0 1rem; }
+.company { font-weight: 700; font-size: var(--step-1); margin: 0; }
+.supplier-block .phone { margin: 0.15rem 0 0; }
+.supplied-head { margin: 0.25rem 0 0.35rem; font-size: var(--step--1); font-weight: 600; }
+.supplied { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.supplied a {
+  display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px;
+  background: var(--shelf); color: var(--ink); text-decoration: none; font-size: var(--step--1);
+}
+.supplied a:hover { background: var(--ok-bg); color: var(--green); }
+
+/* Actions, warnings and FEFO plan */
+.actions { margin: 0 0 1.25rem; }
+.warn { margin: 0; padding: 0.6rem 0.8rem; border-left: 4px solid var(--m3); background: var(--m3-bg); border-radius: 4px; font-weight: 600; font-size: var(--step--1); }
+.plan p { margin: 0 0 0.25rem; }
+.plan ul { margin: 0; padding-left: 1.2rem; font-variant-numeric: tabular-nums; }
+.remove-batch { margin-top: 0.4rem; border-color: var(--expired); color: var(--expired); }
+
+/* Stock level panel */
+:root { --over: #1F5F8B; --over-bg: #E7F0F7; }
+.s-over { color: var(--over); }
+.level { margin-top: 1.5rem; }
+.level-head { font-size: var(--step-1); font-weight: 700; margin: 0 0 0.75rem; }
+.gauge { position: relative; height: 22px; border-radius: 6px; overflow: visible; background: var(--shelf); margin: 0.5rem 0 0.4rem; }
+.gauge .z { position: absolute; top: 0; bottom: 0; }
+.z-safety { left: 0; background: #F4C7C3; border-radius: 6px 0 0 6px; }
+.z-reorder { background: #FAD7B5; }
+.z-ok { background: #CFE7D8; }
+.z-over { background: #CFE0EE; border-radius: 0 6px 6px 0; }
+.mark { position: absolute; top: -6px; bottom: -6px; width: 4px; margin-left: -2px; background: var(--ink); border-radius: 2px; }
+.mark-after { background: transparent; border-left: 3px dashed var(--ink); width: 0; margin-left: -1px; }
+.gauge-key { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.78rem; color: var(--ink-soft); margin-bottom: 1rem; }
+.gauge-key span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.k { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.k-safety { background: #F4C7C3; } .k-reorder { background: #FAD7B5; } .k-ok { background: #CFE7D8; } .k-over { background: #CFE0EE; }
+.k-mark { width: 4px; background: var(--ink); } .k-after { width: 0; height: 12px; border-left: 3px dashed var(--ink); border-radius: 0; }
+
+.calc { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin: 0 0 1rem; border-top: 2px solid var(--ink); }
+.calc > div { padding: 0.6rem 0.25rem; border-bottom: 1px solid var(--rule); }
+.calc dt { font-size: var(--step--1); color: var(--ink-soft); }
+.calc dd { margin: 0; }
+.calc dd strong { display: block; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.calc dd span { font-size: 0.75rem; color: var(--ink-soft); }
+
+.projection { margin: 0 0 1rem; padding: 0.7rem 0.9rem; border-radius: var(--radius); border-left: 5px solid; font-weight: 600; }
+.projection.is-bad { border-color: var(--expired); background: var(--expired-bg); }
+.projection.is-warn { border-color: var(--m3); background: var(--m3-bg); }
+.projection.is-good { border-color: var(--ok); background: var(--ok-bg); }
+
+h3.sub { font-size: var(--step-0); margin: 1.25rem 0 0.25rem; }
+.empty.slim { padding: 0.25rem 0 0; }
+.order { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.6rem; padding: 0.75rem 0.25rem; }
+
+.rules { display: grid; gap: 0.5rem; margin: 1rem 0; }
+.rules p { margin: 0; }
+.rules label { font-size: var(--step--1); }
+.rules input { width: 4.5rem; min-height: 36px; padding: 0.25rem 0.4rem; font: inherit; border: 1px solid var(--rule); border-radius: 6px; }
+.form .check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; }
+.form .check input { min-height: auto; width: 18px; height: 18px; }
+
+/* Definitions on hover, focus or tap */
+.term { cursor: help; text-decoration: underline dotted; text-decoration-color: #9AA8A4; text-underline-offset: 3px; }
+.btn.term, .filter.term { text-decoration: none; }
+#tip {
+  position: fixed; z-index: 30; max-width: 260px;
+  padding: 0.55rem 0.7rem; border-radius: 6px;
+  background: var(--ink); color: #fff; font-size: 0.85rem; font-weight: 400; line-height: 1.4;
+  box-shadow: 0 4px 14px rgba(28, 43, 39, 0.25); pointer-events: none;
+}
+
+/* Scan the pack */
+.scan { margin: 0 0 1.25rem; padding: 1rem; border: 2px dashed var(--rule); border-radius: var(--radius); max-width: 560px; }
+.scan h2 { margin: 0 0 0.25rem; }
+.scan-note { margin: 0 0 0.75rem; color: var(--ink-soft); font-size: var(--step--1); }
+.scan-btn { cursor: pointer; }
+.scan-result:not(:empty) { display: flex; gap: 0.9rem; align-items: flex-start; margin-top: 0.9rem; }
+.scan-result p { margin: 0 0 0.4rem; }
+.scan-preview { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid var(--rule); flex: none; }
+.scan-status { font-weight: 600; }
+.source { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+.source-device { background: var(--ok-bg); color: var(--green); border: 1px solid var(--green); }
+.source-cloud { background: var(--over-bg); color: var(--over); border: 1px solid var(--over); }
+.ai-filled { border-color: var(--green) !important; background: #F1F9F5 !important; box-shadow: 0 0 0 2px rgba(15, 107, 79, 0.15); }
+
+/* Pack photos */
+.pack { width: 64px; }
+.thumb-btn { padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 6px; }
+.thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 6px; border: 1px solid var(--rule); display: block; }
+.add-photo { display: inline-block; font-size: 0.75rem; font-weight: 600; color: var(--green); border: 1px dashed var(--green); border-radius: 6px; padding: 0.3rem 0.35rem; cursor: pointer; text-align: center; line-height: 1.2; }
+.mini { width: 18px; height: 18px; object-fit: cover; border-radius: 3px; vertical-align: -4px; margin-right: 0.35rem; }
+#photo-view { border: 0; border-radius: var(--radius); padding: 1rem; max-width: min(92vw, 640px); }
+#photo-view::backdrop { background: rgba(28, 43, 39, 0.6); }
+#photo-view img { display: block; max-width: 100%; max-height: 70vh; margin: 0 auto 0.5rem; border-radius: 6px; }
+#photo-view p { margin: 0 0 0.75rem; font-weight: 600; }
+main:focus, main:focus-visible { outline: none; }
+.scan-result > * { min-width: 0; flex: 1; }
+.scan-result > img { flex: none; }
+.scan-result p { overflow-wrap: anywhere; }
+
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/stock" aria-label="ShelfSafe home">
+      <svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z"/></svg>
+      <span>ShelfSafe</span>
+    </a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#/stock" data-tab="stock">Stock</a>
+      <a href="#/reminders" data-tab="reminders">Reminders <span class="tab-count" id="reminder-count" hidden></span></a>
+      <a href="#/suppliers" data-tab="suppliers">Suppliers</a>
+    </nav>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script>
+/* ShelfSafe, step 1: stock list, product detail, reminders and suppliers.
+   Data is kept in this browser (localStorage). No AI yet: that arrives in step 4. */
+(function () {
+  "use strict";
+
+  /* ---------- Firebase settings ----------
+     The Firebase web config is a public identifier, not a secret: it's designed to be in the browser.
+     It is protected by App Check (below) and by restricting the API key to this site's address. */
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAboUrUNzsMcJjZshsGVVxORCutRDIOLeQ",
+    authDomain: "shelfsafe-6f849.firebaseapp.com",
+    projectId: "shelfsafe-6f849",
+    storageBucket: "shelfsafe-6f849.firebasestorage.app",
+    messagingSenderId: "752345469348",
+    appId: "1:752345469348:web:0cdfa66a4a4c5bcf037131"
+  };
+  // reCAPTCHA v3 site key for App Check (public). Paste it here once it's created in step 6.
+  const RECAPTCHA_SITE_KEY = "";
+  const FIREBASE_VERSION = "13.2.0";
+  const FB = (name) => "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-" + name + ".js";
+
+  /* ---------- Firebase AI Logic: hybrid inference ----------
+     PREFER_ON_DEVICE: Gemini Nano inside Chrome when this computer can run it (private, free, offline),
+     otherwise the same request goes to the Gemini Developer API in the cloud. */
+  let aiModelPromise = null;
+  function loadAI() {
+    if (aiModelPromise) return aiModelPromise;
+    aiModelPromise = (async () => {
+      const [{ initializeApp }, ai, appCheck] = await Promise.all([import(FB("app")), import(FB("ai")), import(FB("app-check"))]);
+      const app = initializeApp(FIREBASE_CONFIG);
+      if (RECAPTCHA_SITE_KEY) {
+        appCheck.initializeAppCheck(app, { provider: new appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY), isTokenAutoRefreshEnabled: true });
+      }
+      const { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode, Schema } = ai;
+      const schema = Schema.object({
+        properties: {
+          productName: Schema.string(),
+          strength: Schema.string(),
+          form: Schema.string(),
+          brand: Schema.string(),
+          manufacturer: Schema.string(),
+          batchNumber: Schema.string(),
+          expiry: Schema.string()
+        },
+        optionalProperties: ["strength", "form", "brand", "manufacturer"]
+      });
+      const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), {
+        mode: InferenceMode.PREFER_ON_DEVICE,
+        onDeviceParams: {
+          createOptions: {
+            expectedInputs: [{ type: "text", languages: ["en"] }, { type: "image" }],
+            expectedOutputs: [{ type: "text", languages: ["en"] }]
+          },
+          promptOptions: { responseConstraint: schema }
+        },
+        inCloudParams: { generationConfig: { responseMimeType: "application/json", responseSchema: schema } }
+      });
+      return model;
+    })();
+    aiModelPromise.catch(() => { aiModelPromise = null; }); // allow a retry, e.g. after coming back online
+    return aiModelPromise;
+  }
+
+  const SCAN_PROMPT =
+    "You are reading the printed text on a medicine pack photographed in a pharmacy store. " +
+    "Copy only what is clearly printed. Do not guess, and do not add anything that isn't on the pack. " +
+    "productName: the generic or active ingredient name (for example Amoxicillin). " +
+    "strength: for example 500 mg. form: for example capsules, tablets, eye drops. " +
+    "brand: the brand name if different from the generic name. manufacturer: the company that made it. " +
+    "batchNumber: the code after 'Batch', 'B. No', 'Lot' or 'LOT'. " +
+    "expiry: the expiry date after 'EXP' or 'Expiry', written as YYYY-MM. " +
+    "Use an empty string for anything you can't read clearly.";
+
+  // Shrink a photo to a JPEG (max 1024 px) before reading and storing it
+  function shrinkPhoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => b ? resolve(b) : reject(new Error("Couldn't process the photo")), "image/jpeg", 0.75);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file isn't a photo ShelfSafe can open. Use a JPEG or PNG.")); };
+      img.src = url;
+    });
+  }
+  function blobToBase64(blob) {
+    return new Promise((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(String(r.result).split(",")[1]); r.readAsDataURL(blob); });
+  }
+  async function readPack(blob) {
+    const model = await loadAI();
+    try { model.initializeDeviceModel && model.initializeDeviceModel(); } catch (e) { /* not available on this device */ }
+    const imagePart = { inlineData: { data: await blobToBase64(blob), mimeType: "image/jpeg" } };
+    const result = await model.generateContent([SCAN_PROMPT, imagePart]);
+    const src = String(result.response.inferenceSource || "").toUpperCase();
+    let data = {};
+    try { data = JSON.parse(result.response.text()); } catch (e) { throw new Error("The AI's answer couldn't be read. Try a clearer photo."); }
+    return { data, source: src.includes("DEVICE") ? "on-device" : "cloud" };
+  }
+
+  /* ---------- Pack photos, kept on this device (IndexedDB) ---------- */
+  let photoDbPromise = null;
+  function photoDb() {
+    if (!photoDbPromise) photoDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open("shelfsafe-photos", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("photos");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return photoDbPromise;
+  }
+  async function putPhoto(id, blob) {
+    const d = await photoDb();
+    return new Promise((res, rej) => { const tx = d.transaction("photos", "readwrite"); tx.objectStore("photos").put(blob, id); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  }
+  async function getPhoto(id) {
+    const d = await photoDb();
+    return new Promise((res) => { const r = d.transaction("photos").objectStore("photos").get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); });
+  }
+  const photoUrls = {};
+  async function fillPhotos(root) {
+    for (const img of root.querySelectorAll("img[data-photo]")) {
+      const id = img.dataset.photo;
+      try {
+        if (!photoUrls[id]) { const b = await getPhoto(id); if (b) photoUrls[id] = URL.createObjectURL(b); }
+        if (photoUrls[id]) { img.src = photoUrls[id]; img.hidden = false; }
+      } catch (e) { /* photo storage unavailable */ }
+    }
+  }
+  function openPhoto(id, caption) {
+    if (!photoUrls[id]) return;
+    let dlg = document.getElementById("photo-view");
+    if (!dlg) {
+      dlg = document.createElement("dialog"); dlg.id = "photo-view";
+      dlg.innerHTML = '<img alt=""><p></p><form method="dialog"><button class="btn">Close</button></form>';
+      dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+      document.body.appendChild(dlg);
+    }
+    dlg.querySelector("img").src = photoUrls[id];
+    dlg.querySelector("img").alt = caption;
+    dlg.querySelector("p").textContent = caption;
+    dlg.showModal();
+  }
+
+  const STORE_KEY = "shelfsafe.v3";
+  const DAY = 86400000;
+
+  /* ---------- Dates ---------- */
+  function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+  function addDays(d, n) { return new Date(d.getTime() + n * DAY); }
+  function addMonths(d, n) { const x = new Date(d); x.setMonth(x.getMonth() + n); return x; }
+  function iso(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function parse(isoStr) { const [y, m, d] = isoStr.split("-").map(Number); return new Date(y, m - 1, d); }
+  function fmtExp(isoStr) { const d = parse(isoStr); return String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear(); }
+  function fmtShort(isoStr) { const d = parse(isoStr); return (d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(2); }
+  function fmtDate(isoStr) {
+    return parse(isoStr).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  /* ---------- Expiry status ---------- */
+  const STATUS = {
+    expired: { label: "Expired", rank: 0 },
+    m3: { label: "Under 3 months", rank: 1 },
+    m6: { label: "Under 6 months", rank: 2 },
+    ok: { label: "OK", rank: 3 }
+  };
+  function statusOf(expiryIso) {
+    const exp = parse(expiryIso), t = today();
+    if (exp < t) return "expired";
+    if (exp <= addMonths(t, 3)) return "m3";
+    if (exp <= addMonths(t, 6)) return "m6";
+    return "ok";
+  }
+
+  /* ---------- Sample data (dates are relative to today, so it always looks current) ---------- */
+  function sampleData() {
+    const t = today();
+    const suppliers = [
+      { id: "s1", name: "Ikeja Medical Supplies", contact: "Chinedu Okafor", phone: "08000000001", leadDays: 7 },
+      { id: "s2", name: "Unity Pharma Distributors", contact: "Aisha Bello", phone: "08000000002", leadDays: 14 },
+      { id: "s3", name: "Eastgate Drugs Ltd", contact: "Emeka Nwosu", phone: "08000000003", leadDays: 10 },
+      { id: "s4", name: "Crescent Health Wholesale", contact: "Funke Adeyemi", phone: "08000000004", leadDays: 21 }
+    ];
+    // [name, unit, supplier, monthly use, [[batch, days to expiry, qty on hand], ...]]
+    const items = [
+      ["Amoxicillin 500 mg capsules", "capsules", "s1", 220, [["AMX2304", 70, 300], ["AMX2311", 400, 500]]],
+      ["Artemether/Lumefantrine 20/120 mg tablets", "packs", "s2", 40, [["ALU5521", -12, 18], ["ALU5602", 210, 60]]],
+      ["Paracetamol 500 mg tablets", "tablets", "s1", 900, [["PCM8812", 520, 950]]],
+      ["Metformin 500 mg tablets", "tablets", "s3", 300, [["MET1107", 150, 330]]],
+      ["Amlodipine 10 mg tablets", "tablets", "s3", 60, [["AML4410", 45, 280]]],
+      ["Ciprofloxacin 500 mg tablets", "tablets", "s2", 90, [["CIP0920", 120, 70]]],
+      ["Oral rehydration salts sachets", "sachets", "s4", 50, [["ORS3301", 300, 110]]],
+      ["Ibuprofen 400 mg tablets", "tablets", "s1", 200, [["IBU7705", 25, 120], ["IBU7790", 330, 300]]],
+      ["Timolol 0.5% eye drops, 5 ml", "bottles", "s4", 10, [["TIM2208", 160, 24]]],
+      ["Chloramphenicol 0.5% eye drops, 10 ml", "bottles", "s4", 12, [["CHL6612", 80, 25]]],
+      ["Vitamin C 100 mg tablets", "tablets", "s3", 250, [["VTC9001", 600, 520]]],
+      ["Lisinopril 10 mg tablets", "tablets", "s2", 70, [["LIS3318", 250, 150]]]
+    ];
+    const products = [], batches = [], receipts = [], issues = [];
+    items.forEach(([name, unit, supplierId, monthly, bs], i) => {
+      const pid = "p" + (i + 1);
+      products.push({ id: pid, name, unit, supplierId });
+      const lead = suppliers.find((s) => s.id === supplierId).leadDays;
+      bs.forEach(([batchNo, days, qty], j) => {
+        const bid = pid + "b" + (j + 1);
+        const expiry = iso(addDays(t, days));
+        // Older batches were received earlier: batch 1 about 5 months ago, batch 2 about 3 months ago
+        const receivedOn = addDays(t, -(120 - j * 70 + ((i * 17) % 90)));
+        batches.push({ id: bid, productId: pid, batchNo, expiry, qty, receivedOn: iso(receivedOn), supplierId });
+        const orderedOn = addDays(receivedOn, -(lead + ((i + j) % 3) - 1));
+        receipts.push({
+          id: "r" + bid, productId: pid, batchNo, expiry, supplierId,
+          qty: qty + Math.round(monthly * 1.5), orderedOn: iso(orderedOn), receivedOn: iso(receivedOn)
+        });
+      });
+      // Weekly issues over the last 17 weeks, so monthly use can be calculated in step 3
+      for (let w = 1; w <= 17; w++) {
+        const wobble = 0.8 + (((i + 1) * (w + 3)) % 5) / 10;
+        const qty = Math.max(1, Math.round((monthly * 12 / 52) * wobble));
+        issues.push({ id: "i" + pid + "w" + w, productId: pid, qty, date: iso(addDays(t, -7 * w + 2)) });
+      }
+    });
+    // One order already placed and waiting for delivery
+    const orders = [{ id: "o1", productId: "p4", supplierId: "s3", qty: 900, orderedOn: iso(addDays(t, -4)), expectedOn: iso(addDays(t, 6)), status: "open" }];
+    return { version: 3, isSample: true, suppliers, products, batches, receipts, issues, orders,
+      settings: { safetyMonths: 1, reviewMonths: 1 } };
+  }
+
+  /* ---------- Storage ---------- */
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) { /* storage blocked or corrupt: fall back to sample data */ }
+    return sampleData();
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+    catch (e) { toast("Couldn't save on this device. Check that the browser allows site storage."); }
+  }
+  let db = load();
+
+  /* ---------- Lookups ---------- */
+  const supplierOf = (p) => db.suppliers.find((s) => s.id === p.supplierId);
+  const productById = (id) => db.products.find((p) => p.id === id);
+  const liveBatches = (pid) => db.batches
+    .filter((b) => b.productId === pid && b.qty > 0)
+    .sort((a, b) => a.expiry.localeCompare(b.expiry)); // FEFO order
+  function productSummary(p) {
+    const bs = liveBatches(p.id);
+    const onHand = bs.reduce((n, b) => n + b.qty, 0);
+    const next = bs[0];
+    const status = next ? statusOf(next.expiry) : null;
+    return { batches: bs, onHand, next, status };
+  }
+  // Batches numbered in the order they arrived: Batch 1 is the oldest still on the shelf
+  function batchesByArrival(pid) {
+    return liveBatches(pid).slice()
+      .sort((a, b) => (a.receivedOn || "").localeCompare(b.receivedOn || ""))
+      .map((b, i) => Object.assign({ n: i + 1 }, b));
+  }
+  function flaggedBatches() {
+    return db.batches
+      .filter((b) => b.qty > 0 && statusOf(b.expiry) !== "ok")
+      .sort((a, b) => a.expiry.localeCompare(b.expiry));
+  }
+
+  /* ---------- Stock calculations (plain arithmetic, never AI) ---------- */
+  const MONTH_DAYS = 30.44;
+  function settings() {
+    db.settings = db.settings || { safetyMonths: 1, reviewMonths: 1 };
+    return db.settings;
+  }
+  function openOrders(pid) {
+    return (db.orders || []).filter((o) => o.productId === pid && o.status === "open")
+      .sort((a, b) => a.expectedOn.localeCompare(b.expectedOn));
+  }
+  // Average Monthly Consumption: everything issued in the last 3 months, divided by 3
+  function amcOf(pid) {
+    const from = iso(addDays(today(), -91));
+    const total = db.issues.filter((i) => i.productId === pid && i.date >= from).reduce((n, i) => n + i.qty, 0);
+    return total / 3;
+  }
+  // Lead time: average days from order to delivery, from past deliveries; otherwise the supplier's usual time
+  function leadOf(p) {
+    const rs = db.receipts.filter((r) => r.productId === p.id && r.orderedOn && r.receivedOn);
+    if (rs.length) {
+      const avg = rs.reduce((n, r) => n + (parse(r.receivedOn) - parse(r.orderedOn)) / DAY, 0) / rs.length;
+      return { days: Math.max(1, Math.round(avg)), from: plural(rs.length, "past delivery", "past deliveries") };
+    }
+    const sup = supplierOf(p);
+    return { days: (sup && sup.leadDays) || 7, from: "the supplier's usual delivery time" };
+  }
+  const LEVEL = {
+    out: { label: "Out of stock", cls: "s-expired" },
+    safety: { label: "Below safety stock", cls: "s-expired" },
+    reorder: { label: "At reorder level", cls: "s-m3" },
+    over: { label: "Overstock", cls: "s-over" },
+    ok: { label: "Stock level OK", cls: "s-ok" },
+    nodata: { label: "Not enough history", cls: "" }
+  };
+  function levelsOf(p) {
+    const st = settings();
+    const usableBatches = liveBatches(p.id).filter((b) => statusOf(b.expiry) !== "expired");
+    const usable = usableBatches.reduce((n, b) => n + b.qty, 0);
+    const orders = openOrders(p.id);
+    const onOrder = orders.reduce((n, o) => n + o.qty, 0);
+    const amc = amcOf(p.id);
+    const lead = leadOf(p);
+    const r = { usable, onOrder, orders, amc, lead };
+    if (!amc) { r.status = usable ? "nodata" : "out"; return r; }
+    r.safety = Math.ceil(amc * st.safetyMonths);
+    r.reorderLevel = Math.ceil(amc * (lead.days / MONTH_DAYS + st.safetyMonths));
+    r.max = Math.ceil(r.reorderLevel + amc * st.reviewMonths);
+    r.mos = usable / amc;
+    r.reorderQty = Math.max(0, r.max - usable - onOrder);
+    r.status = usable === 0 ? "out" : usable <= r.safety ? "safety" : usable <= r.reorderLevel ? "reorder" : usable > r.max ? "over" : "ok";
+    r.covered = onOrder > 0 && usable + onOrder > r.reorderLevel;
+    // The ordering period: what will be left when the goods arrive?
+    let days, basis;
+    if (orders.length) { days = Math.max(0, (parse(orders[0].expectedOn) - today()) / DAY); basis = "order"; }
+    else if (r.status !== "ok" && r.status !== "over") { days = lead.days; basis = "ifToday"; }
+    if (basis) {
+      const left = Math.round(usable - amc * days / MONTH_DAYS);
+      r.projection = { basis, days: Math.round(days), left,
+        risk: left <= 0 ? "stockout" : left < r.safety ? "buffer" : "fine" };
+      if (left <= 0) r.projection.runsOutIn = Math.max(0, Math.floor(usable / amc * MONTH_DAYS));
+    }
+    return r;
+  }
+  // Expiry risk: units of each batch that won't be used before they expire, at the current AMC (FEFO order)
+  function expiryRisk(pid, amc) {
+    let usedBefore = 0;
+    return liveBatches(pid).filter((b) => statusOf(b.expiry) !== "expired").map((b) => {
+      const monthsLeft = (parse(b.expiry) - today()) / DAY / MONTH_DAYS;
+      const canUse = Math.max(0, amc * monthsLeft - usedBefore);
+      const used = Math.min(b.qty, canUse);
+      usedBefore += used;
+      return { batch: b, atRisk: Math.round(b.qty - used) };
+    }).filter((x) => x.atRisk > 0);
+  }
+  function needsReorder(p) {
+    const l = levelsOf(p);
+    return ["out", "safety", "reorder"].includes(l.status) && !l.covered && l.amc > 0;
+  }
+  function fmtNum(n) { return Math.round(n).toLocaleString(); }
+
+  /* ---------- Contact links ---------- */
+  function intlPhone(phone) {
+    let d = String(phone || "").replace(/\D/g, "");
+    if (d.startsWith("0")) d = "234" + d.slice(1);
+    return d;
+  }
+  function telLink(phone) { return "tel:+" + intlPhone(phone); }
+  function waLink(phone, text) { return "https://wa.me/" + intlPhone(phone) + "?text=" + encodeURIComponent(text); }
+  function greet(supplier) { return "Hello " + (supplier.contact || supplier.name); }
+  function supplierMessage(supplier, product, batch) {
+    const st = statusOf(batch.expiry);
+    const what = product.unit;
+    if (st === "expired") {
+      return greet(supplier) + ", we have " + batch.qty + " " + what + " of " + product.name +
+        " (batch " + batch.batchNo + ") that expired on " + fmtDate(batch.expiry) +
+        ". Please can we arrange a return or credit note? Thank you.";
+    }
+    return greet(supplier) + ", we have " + batch.qty + " " + what + " of " + product.name +
+      " (batch " + batch.batchNo + ") expiring on " + fmtDate(batch.expiry) +
+      ". Can we arrange a swap for a later batch? Thank you.";
+  }
+
+  /* ---------- Small helpers ---------- */
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function stamp(expiryIso) {
+    const st = statusOf(expiryIso);
+    return '<span class="stamp s-' + st + '" title="Expires ' + esc(fmtDate(expiryIso)) + '"><small>Exp</small><strong>' +
+      fmtExp(expiryIso) + "</strong></span>" +
+      '<span class="status-text s-' + st + '">' + STATUS[st].label + "</span>";
+  }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg; el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+  }
+  const view = document.getElementById("view");
+
+  function levelBadge(p) {
+    const l = levelsOf(p);
+    if (!["out", "safety", "reorder", "over"].includes(l.status) && !l.onOrder) return "";
+    let txt = LEVEL[l.status].label, cls = LEVEL[l.status].cls;
+    if (l.status === "ok" || l.status === "nodata") { txt = "On order"; cls = "s-ok"; }
+    else if (l.covered) txt += ", on order";
+    return ' · <strong class="' + cls + '">' + txt + "</strong>";
+  }
+
+  /* ---------- Stock list ---------- */
+  let stockFilter = "all", stockQuery = "";
+  function renderStock() {
+    const flagged = flaggedBatches();
+    const nExpired = flagged.filter((b) => statusOf(b.expiry) === "expired").length;
+    const nM3 = flagged.filter((b) => statusOf(b.expiry) === "m3").length;
+
+    const rows = db.products.map((p) => ({ p, s: productSummary(p) }));
+    const counts = { all: rows.length, expired: 0, m3: 0, m6: 0, ok: 0 };
+    rows.forEach((r) => { if (r.s.status) counts[r.s.status]++; });
+
+    let bannerHtml = "";
+    const nReorder = db.products.filter(needsReorder).length;
+    if (nExpired || nM3 || nReorder) {
+      const parts = [];
+      if (nReorder) parts.push(plural(nReorder, "product needs", "products need") + " reordering");
+      if (nExpired) parts.push(plural(nExpired, "batch has", "batches have") + " expired");
+      if (nM3) parts.push(plural(nM3, "batch expires", "batches expire") + " within 3 months");
+      bannerHtml = '<div class="banner' + (nExpired || nReorder ? " is-expired" : "") + '"><p>' + parts.join(", ").replace(/, ([^,]*)$/, " and $1") +
+        '.</p><a class="btn btn-small" href="#/reminders">See reminders</a></div>';
+    }
+
+    const filters = [["all", "All"], ["expired", "Expired"], ["m3", "Under 3 months"], ["m6", "Under 6 months"], ["ok", "OK"]]
+      .map(([k, label]) => '<button class="filter" data-filter="' + k + '" aria-pressed="' + (stockFilter === k) + '">' +
+        label + " (" + counts[k] + ")</button>").join("");
+
+    const q = stockQuery.trim().toLowerCase();
+    const shown = rows
+      .filter((r) => stockFilter === "all" || r.s.status === stockFilter)
+      .filter((r) => !q || r.p.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (!a.s.next) return 1; if (!b.s.next) return -1;
+        return a.s.next.expiry.localeCompare(b.s.next.expiry);
+      });
+
+    const list = shown.length ? shown.map(({ p, s }) => {
+      const sup = supplierOf(p);
+      const lines = batchesByArrival(p.id).map((b) =>
+        '<li class="batch-line"><span class="batch-name">' + (b.hasPhoto ? '<img class="mini" data-photo="' + b.id + '" alt="" hidden>' : "") + "Batch " + b.n + "</span>" +
+        '<span class="batch-date">received ' + (b.receivedOn ? fmtShort(b.receivedOn) : "date not recorded") + "</span>" +
+        '<span class="batch-qty">' + b.qty.toLocaleString() + " " + esc(p.unit) + "</span>" +
+        '<span class="batch-exp s-' + statusOf(b.expiry) + '">exp ' + fmtExp(b.expiry) + "</span></li>").join("");
+      return '<li><a class="row" href="#/product/' + p.id + '">' +
+        '<span class="row-title">' + esc(p.name) + "</span>" +
+        '<span class="row-side">' + (s.next ? stamp(s.next.expiry) : '<span class="status-text">Out of stock</span>') + "</span>" +
+        '<span class="row-meta">' + s.onHand.toLocaleString() + " " + esc(p.unit) + " in stock" + levelBadge(p) +
+        (sup ? " · " + esc(sup.name) : "") + "</span>" +
+        (lines ? '<ul class="batch-lines">' + lines + "</ul>" : "") + "</a></li>";
+    }).join("") : '<li class="empty">No products match. Try another filter or search word.</li>';
+
+    view.innerHTML =
+      "<h1>Stock</h1>" +
+      '<p class="lede">Every product, with the batch that expires soonest shown first.</p>' +
+      '<div class="btn-row actions"><a class="btn" href="#/receive">Receive stock</a></div>' +
+      bannerHtml +
+      '<div class="filters" role="group" aria-label="Filter by expiry">' + filters + "</div>" +
+      '<input class="search" type="search" placeholder="Search products" aria-label="Search products" value="' + esc(stockQuery) + '">' +
+      '<ul class="ledger">' + list + "</ul>" +
+      '<div class="footnote"><p>' + (db.isSample ? "You're looking at sample data. " : "") +
+      "Records are saved in this browser on this device.</p>" +
+      '<form class="rules" id="rules"><p><strong>Stock rules</strong> used for every product</p>' +
+      '<label>Safety stock <input name="safetyMonths" type="number" min="0.25" max="6" step="0.25" value="' + settings().safetyMonths + '"> month(s) of use</label>' +
+      '<label>Order every <input name="reviewMonths" type="number" min="0.25" max="6" step="0.25" value="' + settings().reviewMonths + '"> month(s)</label></form>' +
+      '<button class="btn btn-quiet btn-small" id="reset">Reset to sample data</button></div>';
+
+    view.querySelectorAll(".filter").forEach((b) => b.addEventListener("click", () => {
+      stockFilter = b.dataset.filter; renderStock();
+    }));
+    const search = view.querySelector(".search");
+    search.addEventListener("input", () => {
+      stockQuery = search.value;
+      const pos = search.selectionStart;
+      renderStock();
+      const s2 = view.querySelector(".search"); s2.focus(); s2.setSelectionRange(pos, pos);
+    });
+    view.querySelector("#rules").addEventListener("change", (e) => {
+      const v = parseFloat(e.target.value);
+      if (!(v > 0)) return toast("Enter a number of months above 0.");
+      settings()[e.target.name] = v; save(); renderStock(); updateCount(); toast("Stock rules updated");
+    });
+    view.querySelector("#reset").addEventListener("click", () => {
+      if (confirm("Replace everything on this device with the sample data?")) {
+        db = sampleData(); save(); renderStock(); updateCount(); toast("Sample data restored");
+      }
+    });
+  }
+
+  /* ---------- Product detail ---------- */
+  function renderProduct(id) {
+    const p = productById(id);
+    if (!p) { view.innerHTML = '<a class="back" href="#/stock">Back to stock</a><p class="empty">That product isn\'t on this device.</p>'; return; }
+    const s = productSummary(p);
+    const sup = supplierOf(p);
+    const arrival = {}; batchesByArrival(p.id).forEach((b) => { arrival[b.id] = b.n; });
+    const firstUsable = s.batches.find((b) => statusOf(b.expiry) !== "expired");
+    const batchRows = s.batches.length ? s.batches.map((b) =>
+      '<tr><td class="pack">' + (b.hasPhoto
+        ? '<button class="thumb-btn" data-open="' + b.id + '" aria-label="View pack photo for batch ' + arrival[b.id] + '"><img class="thumb" data-photo="' + b.id + '" alt="" hidden></button>'
+        : '<label class="add-photo" title="Add a photo of this batch">Add photo<input type="file" accept="image/jpeg,image/png" capture="environment" data-batch="' + b.id + '" hidden></label>') + "</td>" +
+      "<td><strong>Batch " + arrival[b.id] + '</strong><br><span class="phone">' + esc(b.batchNo) + (b.brand ? " · " + esc(b.brand) : "") + "</span>" +
+      (b === firstUsable ? '<span class="fefo-tag" title="First expiry, first out">Issue first</span>' : "") +
+      (statusOf(b.expiry) === "expired" ? '<br><button class="btn btn-quiet btn-small remove-batch" data-batch="' + b.id + '">Remove from stock</button>' : "") + "</td>" +
+      "<td>" + (b.receivedOn ? fmtDate(b.receivedOn) : "Not recorded") + "</td>" +
+      "<td>" + stamp(b.expiry) + "</td>" +
+      '<td class="num">' + b.qty.toLocaleString() + "</td></tr>").join("")
+      : '<tr><td colspan="5" class="empty">No stock on hand.</td></tr>';
+
+    let supplierHtml = '<p class="empty">No supplier saved.</p>';
+    if (sup) {
+      const msg = s.next ? supplierMessage(sup, p, s.next)
+        : greet(sup) + ", we'd like to reorder " + p.name + ". Thank you.";
+      supplierHtml = '<div class="supplier-line"><p><strong>' + esc(sup.name) + '</strong><br><span class="phone">' + (sup.contact ? esc(sup.contact) + " · " : "") + esc(sup.phone) + "</span></p>" +
+        '<div class="btn-row"><a class="btn btn-quiet btn-small" href="' + telLink(sup.phone) + '">Call</a>' +
+        '<a class="btn btn-small" target="_blank" rel="noopener" href="' + waLink(sup.phone, msg) + '">WhatsApp</a></div></div>';
+    }
+
+    view.innerHTML =
+      '<a class="back" href="#/stock">Back to stock</a>' +
+      "<h1>" + esc(p.name) + "</h1>" +
+      '<div class="facts">' +
+      '<div class="fact"><span>On hand</span><strong>' + s.onHand.toLocaleString() + "</strong> " + esc(p.unit) + "</div>" +
+      '<div class="fact"><span>Batches</span><strong>' + s.batches.length + "</strong></div>" +
+      '<div class="fact"><span>Next expiry</span><strong>' + (s.next ? fmtDate(s.next.expiry) : "None") + "</strong></div>" +
+      "</div>" +
+      stockLevelHtml(p) +
+      "<h2>Batches, in the order to issue them</h2>" + expiryRiskHtml(p) +
+      '<table class="table"><thead><tr><th>Pack</th><th>Batch</th><th>Received</th><th>Expiry</th><th class="num">Qty</th></tr></thead><tbody>' + batchRows + "</tbody></table>" +
+      "<h2>Supplier</h2>" + supplierHtml +
+      "<h2>Recent movements</h2>" + movementsHtml(p);
+
+    const actions = document.createElement("div");
+    actions.className = "btn-row actions";
+    actions.innerHTML = '<a class="btn" href="#/receive/' + p.id + '">Receive stock</a>' +
+      '<a class="btn btn-quiet" href="#/order/' + p.id + '">Place order</a>' +
+      (s.onHand ? '<a class="btn btn-quiet" href="#/issue/' + p.id + '">Issue stock</a>' : "");
+    view.querySelector(".facts").after(actions);
+
+    view.querySelectorAll("input[data-batch]").forEach((inp) => inp.addEventListener("change", async () => {
+      const file = inp.files[0]; if (!file) return;
+      try {
+        const blob = await shrinkPhoto(file);
+        await putPhoto(inp.dataset.batch, blob);
+        const b = db.batches.find((x) => x.id === inp.dataset.batch); b.hasPhoto = true; save();
+        delete photoUrls[b.id]; renderProduct(p.id); toast("Photo saved with the batch");
+      } catch (err) { toast(err.message || "The photo couldn't be saved."); }
+    }));
+    view.querySelectorAll(".cancel-order").forEach((btn) => btn.addEventListener("click", () => {
+      const o = (db.orders || []).find((x) => x.id === btn.dataset.order);
+      if (!o || !confirm("Cancel this order of " + o.qty + " " + p.unit + "?")) return;
+      o.status = "cancelled"; save(); renderProduct(p.id); updateCount(); toast("Order cancelled");
+    }));
+    view.querySelectorAll(".remove-batch").forEach((btn) => btn.addEventListener("click", () => {
+      const b = db.batches.find((x) => x.id === btn.dataset.batch);
+      if (!b || !confirm("Remove " + b.qty + " " + p.unit + " of expired batch " + b.batchNo + " from stock? Record it in your disposal register too.")) return;
+      db.removals = db.removals || [];
+      db.removals.push({ id: "x" + Date.now(), productId: p.id, batchNo: b.batchNo, qty: b.qty, date: iso(today()), reason: "Expired" });
+      b.qty = 0; save(); renderProduct(p.id); updateCount();
+      toast("Expired batch removed from stock");
+    }));
+  }
+
+  function stockLevelHtml(p) {
+    const l = levelsOf(p);
+    const unit = esc(p.unit);
+    let html = '<section class="level" aria-labelledby="level-h"><h2 id="level-h">Stock level</h2>';
+    if (!l.amc) {
+      return html + '<p class="empty">Not enough issue history yet. Once you\'ve issued this product for a few weeks, ShelfSafe works out its monthly use, reorder level and safety stock.</p>' + ordersHtml(p, l) + "</section>";
+    }
+    const lv = LEVEL[l.status];
+    let headline = lv.label;
+    if (l.status === "reorder" || l.status === "safety" || l.status === "out") headline += l.covered ? ". An order is on the way." : ". Order now.";
+    if (l.status === "over") headline += ". " + fmtNum(l.usable - l.max) + " " + unit + " above maximum.";
+    html += '<p class="level-head ' + lv.cls + '">' + headline + "</p>";
+
+    // Gauge: 0 → safety → reorder level → maximum, with the current stock marked
+    const top = Math.max(l.max * 1.25, (l.usable + l.onOrder) * 1.05, 1);
+    const pct = (v) => Math.min(100, v / top * 100).toFixed(2) + "%";
+    html += '<div class="gauge" role="img" aria-label="' + fmtNum(l.usable) + " " + unit + " on hand. Safety stock " + fmtNum(l.safety) +
+      ", reorder level " + fmtNum(l.reorderLevel) + ", maximum " + fmtNum(l.max) + '.">' +
+      '<span class="z z-safety" style="width:' + pct(l.safety) + '"></span>' +
+      '<span class="z z-reorder" style="left:' + pct(l.safety) + ";width:calc(" + pct(l.reorderLevel) + " - " + pct(l.safety) + ')"></span>' +
+      '<span class="z z-ok" style="left:' + pct(l.reorderLevel) + ";width:calc(" + pct(l.max) + " - " + pct(l.reorderLevel) + ')"></span>' +
+      '<span class="z z-over" style="left:' + pct(l.max) + ";right:0" + '"></span>' +
+      (l.onOrder ? '<span class="mark mark-after" style="left:' + pct(l.usable + l.onOrder) + '" title="After the order arrives"></span>' : "") +
+      '<span class="mark" style="left:' + pct(l.usable) + '"></span></div>' +
+      '<div class="gauge-key"><span><i class="k k-safety"></i>Safety</span><span><i class="k k-reorder"></i>Reorder zone</span><span><i class="k k-ok"></i>Healthy</span><span><i class="k k-over"></i>Overstock</span><span><i class="k k-mark"></i>On hand</span>' +
+      (l.onOrder ? '<span><i class="k k-after"></i>After order arrives</span>' : "") + "</div>";
+
+    const facts = [
+      ["On hand (usable)", fmtNum(l.usable) + " " + unit, "Expired batches not counted"],
+      ["Average monthly use (AMC)", fmtNum(l.amc) + " " + unit, "Issued in the last 3 months ÷ 3"],
+      ["Months of stock", l.mos.toFixed(1), "On hand ÷ AMC"],
+      ["Lead time", plural(l.lead.days, "day", "days"), "Average from " + l.lead.from],
+      ["Safety stock", fmtNum(l.safety) + " " + unit, plural(settings().safetyMonths, "month", "months") + " of use"],
+      ["Reorder level", fmtNum(l.reorderLevel) + " " + unit, "Use during lead time + safety stock"],
+      ["Maximum stock", fmtNum(l.max) + " " + unit, "Reorder level + " + plural(settings().reviewMonths, "month", "months") + " of use"],
+      ["Suggested order", l.reorderQty ? fmtNum(l.reorderQty) + " " + unit : "None needed", "Maximum − on hand − on order"]
+    ];
+    html += '<dl class="calc">' + facts.map(([k, v, how]) =>
+      "<div><dt>" + k + "</dt><dd><strong>" + v + "</strong><span>" + how + "</span></dd></div>").join("") + "</dl>";
+
+    if (l.projection) {
+      const pr = l.projection;
+      const when = pr.basis === "order" ? "By the time the order arrives (in " + plural(pr.days, "day", "days") + ")"
+        : "If you order today, by the time it arrives (about " + plural(pr.days, "day", "days") + ")";
+      let msg, cls;
+      if (pr.risk === "stockout") { cls = "is-bad"; msg = when + ", you'll run out. Stock lasts only about " + plural(pr.runsOutIn, "day", "days") + " at current use."; }
+      else if (pr.risk === "buffer") { cls = "is-warn"; msg = when + ", stock will be down to about " + fmtNum(pr.left) + " " + unit + ", inside the safety stock of " + fmtNum(l.safety) + "."; }
+      else { cls = "is-good"; msg = when + ", about " + fmtNum(pr.left) + " " + unit + " will be left, above the safety stock."; }
+      html += '<p class="projection ' + cls + '">' + msg + "</p>";
+    }
+    return html + ordersHtml(p, l) + "</section>";
+  }
+
+  function ordersHtml(p, l) {
+    const orders = l.orders;
+    let html = '<h3 class="sub">On order, waiting for delivery</h3>';
+    if (!orders.length) return html + '<p class="empty slim">Nothing on order. Use Place order when you send an order to the supplier.</p>';
+    return html + '<ul class="ledger orders">' + orders.map((o) => {
+      const sup = db.suppliers.find((x) => x.id === o.supplierId);
+      const daysTo = Math.round((parse(o.expectedOn) - today()) / DAY);
+      const due = daysTo < 0 ? '<span class="s-expired"><strong>Overdue by ' + plural(-daysTo, "day", "days") + "</strong></span>"
+        : daysTo === 0 ? "<strong>Due today</strong>" : "due in " + plural(daysTo, "day", "days");
+      return '<li class="order"><div><strong>' + fmtNum(o.qty) + " " + esc(p.unit) + "</strong> from " + esc(sup ? sup.name : "supplier") +
+        '<div class="row-meta">Ordered ' + fmtDate(o.orderedOn) + " · expected " + fmtDate(o.expectedOn) + " · " + due + "</div></div>" +
+        '<div class="btn-row"><a class="btn btn-small" href="#/receive/' + p.id + "/" + o.id + '">Mark as delivered</a>' +
+        (sup ? '<a class="btn btn-quiet btn-small" target="_blank" rel="noopener" href="' + waLink(sup.phone, greet(sup) + ", following up on our order of " + o.qty + " " + p.unit + " of " + p.name + " placed on " + fmtDate(o.orderedOn) + ". When can we expect delivery? Thank you.") + '">Follow up</a>' : "") +
+        '<button class="btn btn-quiet btn-small cancel-order" data-order="' + o.id + '">Cancel</button></div></li>';
+    }).join("") + "</ul>";
+  }
+
+  function expiryRiskHtml(p) {
+    const amc = amcOf(p.id);
+    if (!amc) return "";
+    const risk = expiryRisk(p.id, amc);
+    if (!risk.length) return "";
+    const total = risk.reduce((n, x) => n + x.atRisk, 0);
+    return '<p class="projection is-warn">Expiry risk: at current use, about ' + fmtNum(total) + " " + esc(p.unit) +
+      " will expire before they're used (" + risk.map((x) => "batch " + esc(x.batch.batchNo) + ": " + fmtNum(x.atRisk)).join(", ") +
+      "). Ask the supplier for a swap, or move them to a busier outlet.</p>";
+  }
+
+  /* ---------- Place an order ---------- */
+  function renderOrder(pid) {
+    const p = productById(pid);
+    if (!p) { location.hash = "#/stock"; return; }
+    const l = levelsOf(p);
+    const t = iso(today());
+    const suggested = l.reorderQty || "";
+    view.innerHTML =
+      '<a class="back" href="#/product/' + p.id + '">Back</a>' +
+      "<h1>Place order</h1>" +
+      '<p class="lede">' + esc(p.name) + ". Record an order you've sent, so ShelfSafe can track it until it's delivered." +
+      (l.amc ? " Suggested quantity: " + (l.reorderQty ? fmtNum(l.reorderQty) + " " + esc(p.unit) + ", to bring stock up to the maximum." : "none needed right now.") : "") + "</p>" +
+      '<form class="form" id="order-form" novalidate>' +
+      '<label>Supplier<select name="supplierId">' + db.suppliers.map((x) =>
+        '<option value="' + x.id + '"' + (x.id === p.supplierId ? " selected" : "") + ">" + esc(x.name) + "</option>").join("") + "</select></label>" +
+      '<label>Quantity (' + esc(p.unit) + ')<input name="qty" type="number" min="1" inputmode="numeric" value="' + suggested + '" required></label>' +
+      '<label>Date ordered<input name="orderedOn" type="date" value="' + t + '" max="' + t + '" required></label>' +
+      '<label>Expected delivery<input name="expectedOn" type="date" value="' + iso(addDays(today(), l.lead.days)) + '" required></label>' +
+      '<label class="check"><input type="checkbox" name="send" checked> Send the order to the supplier on WhatsApp</label>' +
+      '<div class="btn-row"><button class="btn" type="submit">Save order</button></div></form>';
+    const form = view.querySelector("#order-form");
+    form.orderedOn.addEventListener("change", () => {
+      if (form.orderedOn.value) form.expectedOn.value = iso(addDays(parse(form.orderedOn.value), l.lead.days));
+    });
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const qty = parseInt(form.qty.value, 10);
+      if (!qty || qty < 1) return toast("Enter the quantity ordered.");
+      if (!form.orderedOn.value || !form.expectedOn.value) return toast("Enter the order date and expected delivery date.");
+      if (form.expectedOn.value < form.orderedOn.value) return toast("Expected delivery can't be before the order date.");
+      db.orders = db.orders || [];
+      const o = { id: "o" + Date.now(), productId: p.id, supplierId: form.supplierId.value, qty, orderedOn: form.orderedOn.value, expectedOn: form.expectedOn.value, status: "open" };
+      db.orders.push(o); db.isSample = false; save();
+      const sup = db.suppliers.find((x) => x.id === o.supplierId);
+      if (form.send.checked && sup) {
+        window.open(waLink(sup.phone, greet(sup) + ", please supply " + qty + " " + p.unit + " of " + p.name + ". Thank you."), "_blank", "noopener");
+      }
+      toast("Order saved. It shows as on order until delivered.");
+      location.hash = "#/product/" + p.id;
+    });
+  }
+
+  function movementsHtml(p) {
+    const moves = [];
+    db.receipts.filter((r) => r.productId === p.id).forEach((r) =>
+      moves.push({ date: r.receivedOn, text: "Received from " + ((db.suppliers.find((x) => x.id === r.supplierId) || {}).name || "supplier") + " · batch " + r.batchNo, qty: "+" + r.qty.toLocaleString() }));
+    db.issues.filter((r) => r.productId === p.id).forEach((r) =>
+      moves.push({ date: r.date, text: "Issued" + (r.to ? " to " + r.to : ""), qty: "−" + r.qty.toLocaleString() }));
+    (db.removals || []).filter((r) => r.productId === p.id).forEach((r) =>
+      moves.push({ date: r.date, text: "Removed (" + r.reason.toLowerCase() + ") · batch " + r.batchNo, qty: "−" + r.qty.toLocaleString() }));
+    moves.sort((a, b) => b.date.localeCompare(a.date));
+    if (!moves.length) return '<p class="empty">No movements recorded yet.</p>';
+    return '<table class="table"><thead><tr><th>Date</th><th>What happened</th><th class="num">Qty</th></tr></thead><tbody>' +
+      moves.slice(0, 8).map((m) => "<tr><td>" + fmtDate(m.date) + "</td><td>" + esc(m.text) + '</td><td class="num">' + m.qty + "</td></tr>").join("") +
+      "</tbody></table>";
+  }
+
+  /* ---------- Receive stock (GRN) ---------- */
+  const UNITS = ["tablets", "capsules", "bottles", "sachets", "packs", "tubes", "vials", "ampoules", "pieces"];
+  function renderReceive(pid, orderId) {
+    const order = orderId ? (db.orders || []).find((o) => o.id === orderId && o.status === "open") : null;
+    const p = pid ? productById(pid) : null;
+    const t = iso(today());
+    const productField = p
+      ? '<input type="hidden" name="productId" value="' + p.id + '">'
+      : '<label>Product<select name="productId" id="product-select">' +
+        '<option value="">Choose a product</option>' +
+        db.products.slice().sort((a, b) => a.name.localeCompare(b.name)).map((x) => '<option value="' + x.id + '">' + esc(x.name) + "</option>").join("") +
+        '<option value="new">+ New product</option></select></label>' +
+        '<div id="new-product" class="form" hidden>' +
+        '<label>Product name and strength<input name="newName" placeholder="e.g. Amoxicillin 500 mg capsules"></label>' +
+        '<label>Counted in<select name="newUnit">' + UNITS.map((u) => "<option>" + u + "</option>").join("") + "</select></label></div>";
+    const supplierOptions = db.suppliers.map((x) =>
+      '<option value="' + x.id + '"' + (p && p.supplierId === x.id ? " selected" : "") + ">" + esc(x.name) + "</option>").join("");
+
+    view.innerHTML =
+      '<a class="back" href="' + (p ? "#/product/" + p.id : "#/stock") + '">Back</a>' +
+      "<h1>Receive stock</h1>" +
+      '<p class="lede">' + (p ? esc(p.name) + ". " : "") + (order ? "Delivery for the order placed on " + fmtDate(order.orderedOn) + ". " : "") + "Record a delivery from the Goods Received Note. It becomes a new batch on the shelf.</p>" +
+      '<section class="scan" aria-labelledby="scan-h"><h2 id="scan-h">Scan the pack</h2>' +
+      '<p class="scan-note">Take a clear photo of the side showing the batch number and expiry date. The AI fills in the form, and the photo is saved with the batch.</p>' +
+      '<label class="btn scan-btn">Take or upload a photo<input type="file" id="scan-file" accept="image/jpeg,image/png" capture="environment" hidden></label>' +
+      '<div class="scan-result" id="scan-result" aria-live="polite"></div></section>' +
+      '<form class="form" id="receive-form" novalidate>' + productField +
+      '<label>Supplier<select name="supplierId" required>' + supplierOptions + "</select></label>" +
+      '<label>Brand / manufacturer<input name="brand" autocomplete="off" placeholder="e.g. Amoxil, GSK"></label>' +
+      '<label>Batch number on the pack<input name="batchNo" required autocomplete="off" placeholder="e.g. AMX2304"></label>' +
+      '<label>Expiry date<input name="expiry" type="month" required></label>' +
+      '<label>Quantity received' + (p ? " (" + esc(p.unit) + ")" : "") + '<input name="qty" type="number" min="1" inputmode="numeric" required></label>' +
+      '<label>Date ordered<input name="orderedOn" type="date" max="' + t + '"></label>' +
+      '<label>Date received<input name="receivedOn" type="date" value="' + t + '" max="' + t + '" required></label>' +
+      '<p class="warn" id="short-dated" hidden></p>' +
+      '<div class="btn-row"><button class="btn" type="submit">Save delivery</button></div></form>';
+
+    const form = view.querySelector("#receive-form");
+    const sel = view.querySelector("#product-select");
+    let scannedPhoto = null;
+    const scanEl = view.querySelector("#scan-result");
+    view.querySelector("#scan-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      scanEl.innerHTML = '<p class="scan-status">Reading the pack…</p>';
+      let blob;
+      try { blob = await shrinkPhoto(file); } catch (err) { scanEl.innerHTML = '<p class="warn">' + esc(err.message) + "</p>"; return; }
+      scannedPhoto = blob;
+      const preview = URL.createObjectURL(blob);
+      const head = '<img class="scan-preview" src="' + preview + '" alt="Photo of the pack">';
+      try {
+        const { data, source } = await readPack(blob);
+        const filled = [];
+        const set = (name, val) => { if (val && form[name]) { form[name].value = val; form[name].classList.add("ai-filled"); filled.push(name); } };
+        set("batchNo", String(data.batchNumber || "").toUpperCase());
+        if (/^\d{4}-\d{2}$/.test(data.expiry || "")) { set("expiry", data.expiry); form.expiry.dispatchEvent(new Event("input")); }
+        set("brand", [data.brand, data.manufacturer].filter(Boolean).join(", "));
+        const fullName = [data.productName, data.strength, data.form].filter(Boolean).join(" ");
+        if (sel && fullName) {
+          const words = String(data.productName || "").toLowerCase().split(/[\s/]+/).filter((w) => w.length > 3);
+          const match = db.products.find((x) => words.length && words.every((w) => x.name.toLowerCase().includes(w)) &&
+            (!data.strength || x.name.toLowerCase().replace(/\s/g, "").includes(String(data.strength).toLowerCase().replace(/\s/g, ""))));
+          if (match) { sel.value = match.id; sel.dispatchEvent(new Event("change")); sel.classList.add("ai-filled"); }
+          else { sel.value = "new"; sel.dispatchEvent(new Event("change")); set("newName", fullName); }
+        }
+        scanEl.innerHTML = head + '<div><p class="source source-' + (source === "on-device" ? "device" : "cloud") + '">' +
+          (source === "on-device" ? "Read on this device (offline-capable)" : "Read in the cloud") + "</p>" +
+          "<p>" + (filled.length ? "Filled in " + filled.length + " field" + (filled.length > 1 ? "s" : "") + ", highlighted below. <strong>Check each one against the pack before saving.</strong>"
+            : "Couldn't read the details clearly. Type them in below, or try a sharper photo.") + "</p></div>";
+      } catch (err) {
+        const msg = /app.?check|403|permission/i.test(String(err && err.message)) ? "The AI service isn't fully set up yet (App Check). The photo will still be saved: type the details in below."
+          : !navigator.onLine ? "You're offline and this device can't run the on-device AI. The photo will still be saved: type the details in below."
+          : "Couldn't read the pack (" + esc(String(err && err.message || err).slice(0, 140)) + "). The photo will still be saved: type the details in below.";
+        scanEl.innerHTML = head + '<p class="warn">' + msg + "</p>";
+      }
+    });
+    if (sel) sel.addEventListener("change", () => {
+      view.querySelector("#new-product").hidden = sel.value !== "new";
+      const chosen = productById(sel.value);
+      if (chosen) form.supplierId.value = chosen.supplierId;
+    });
+    if (order) {
+      form.supplierId.value = order.supplierId;
+      form.qty.value = order.qty;
+      form.orderedOn.value = order.orderedOn;
+    }
+    form.expiry.addEventListener("input", () => {
+      const w = view.querySelector("#short-dated");
+      if (!form.expiry.value) { w.hidden = true; return; }
+      const st = statusOf(monthEnd(form.expiry.value));
+      w.hidden = st === "ok";
+      w.textContent = st === "expired" ? "This batch has already expired. Don't accept it."
+        : "Short-dated: this batch expires within " + (st === "m3" ? "3" : "6") + " months. Accept it only if you can sell it in time.";
+    });
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = new FormData(form);
+      let productId = f.get("productId");
+      const batchNo = String(f.get("batchNo") || "").trim().toUpperCase();
+      const qty = parseInt(f.get("qty"), 10);
+      const expiryMonth = f.get("expiry"), receivedOn = f.get("receivedOn"), orderedOn = f.get("orderedOn") || "";
+      if (productId === "new" && !String(f.get("newName") || "").trim()) return toast("Type the new product's name and strength.");
+      if (!productId) return toast("Choose a product.");
+      if (!batchNo) return toast("Enter the batch number printed on the pack.");
+      if (!expiryMonth) return toast("Enter the expiry month and year.");
+      if (!qty || qty < 1) return toast("Enter how many were received.");
+      if (!receivedOn) return toast("Enter the date received.");
+      if (orderedOn && orderedOn > receivedOn) return toast("The order date can't be after the date received.");
+      const expiry = monthEnd(expiryMonth);
+      if (statusOf(expiry) === "expired") return toast("That batch has already expired. It can't be received into stock.");
+      if (productId === "new") {
+        productId = "p" + Date.now();
+        db.products.push({ id: productId, name: String(f.get("newName")).trim(), unit: f.get("newUnit"), supplierId: f.get("supplierId") });
+      }
+      const prod = productById(productId);
+      const supplierId = f.get("supplierId");
+      const same = db.batches.find((b) => b.productId === productId && b.batchNo === batchNo && b.expiry === expiry);
+      const brand = String(f.get("brand") || "").trim();
+      let batchId;
+      if (same) { same.qty += qty; batchId = same.id; if (brand && !same.brand) same.brand = brand; }
+      else { batchId = "b" + Date.now(); db.batches.push({ id: batchId, productId, batchNo, expiry, qty, receivedOn, supplierId, brand }); }
+      if (scannedPhoto) {
+        const target = db.batches.find((b) => b.id === batchId);
+        target.hasPhoto = true;
+        putPhoto(batchId, scannedPhoto).catch(() => toast("The photo couldn't be saved on this device."));
+        delete photoUrls[batchId];
+      }
+      db.receipts.push({ id: "r" + Date.now(), productId, batchNo, expiry, supplierId, qty, orderedOn, receivedOn });
+      if (order) { order.status = "received"; order.receivedOn = receivedOn; }
+      db.isSample = false;
+      save();
+      const n = batchesByArrival(productId).find((b) => b.batchNo === batchNo);
+      toast("Received " + qty.toLocaleString() + " " + prod.unit + (n ? " as Batch " + n.n : ""));
+      location.hash = "#/product/" + productId;
+    });
+  }
+  function monthEnd(yyyyMm) { const [y, m] = yyyyMm.split("-").map(Number); return iso(new Date(y, m, 0)); }
+
+  /* ---------- Issue stock (FEFO) ---------- */
+  function fefoPlan(pid, qty) {
+    const usable = liveBatches(pid).filter((b) => statusOf(b.expiry) !== "expired");
+    const plan = []; let left = qty;
+    for (const b of usable) {
+      if (left <= 0) break;
+      const take = Math.min(b.qty, left);
+      plan.push({ batch: b, take }); left -= take;
+    }
+    return { plan, short: left > 0 ? left : 0, available: usable.reduce((n, b) => n + b.qty, 0) };
+  }
+  function renderIssue(pid) {
+    const p = productById(pid);
+    if (!p) { location.hash = "#/stock"; return; }
+    const t = iso(today());
+    const arrival = {}; batchesByArrival(p.id).forEach((b) => { arrival[b.id] = b.n; });
+    const avail = fefoPlan(p.id, 0).available;
+    view.innerHTML =
+      '<a class="back" href="#/product/' + p.id + '">Back</a>' +
+      "<h1>Issue stock</h1>" +
+      '<p class="lede">' + esc(p.name) + ". ShelfSafe takes it from the batch that expires soonest (FEFO). Expired batches are never issued. " +
+      avail.toLocaleString() + " " + esc(p.unit) + " available.</p>" +
+      '<form class="form" id="issue-form" novalidate>' +
+      '<label>Quantity (' + esc(p.unit) + ')<input name="qty" type="number" min="1" max="' + avail + '" inputmode="numeric" required></label>' +
+      '<label>Issued to<select name="to"><option>Dispensary</option><option>Sale</option><option>Ward</option><option>Branch transfer</option><option>Other</option></select></label>' +
+      '<label>Date<input name="date" type="date" value="' + t + '" max="' + t + '" required></label>' +
+      '<div class="plan" id="plan" aria-live="polite"></div>' +
+      '<div class="btn-row"><button class="btn" type="submit">Issue stock</button></div></form>';
+
+    const form = view.querySelector("#issue-form");
+    const planEl = view.querySelector("#plan");
+    function showPlan() {
+      const q = parseInt(form.qty.value, 10);
+      if (!q) { planEl.innerHTML = ""; return; }
+      const r = fefoPlan(p.id, q);
+      planEl.innerHTML = r.short
+        ? '<p class="warn">Only ' + r.available.toLocaleString() + " " + esc(p.unit) + " can be issued.</p>"
+        : "<p><strong>This will be taken from:</strong></p><ul>" + r.plan.map((x) =>
+          "<li>Batch " + arrival[x.batch.id] + " (" + esc(x.batch.batchNo) + ", exp " + fmtExp(x.batch.expiry) + "): " + x.take.toLocaleString() + "</li>").join("") + "</ul>";
+    }
+    form.qty.addEventListener("input", showPlan);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = parseInt(form.qty.value, 10);
+      if (!q || q < 1) return toast("Enter how many to issue.");
+      const r = fefoPlan(p.id, q);
+      if (r.short) return toast("Not enough usable stock. Only " + r.available + " " + p.unit + " available.");
+      r.plan.forEach((x) => { x.batch.qty -= x.take; });
+      db.issues.push({ id: "i" + Date.now(), productId: p.id, qty: q, date: form.date.value || t, to: form.to.value,
+        from: r.plan.map((x) => ({ batchNo: x.batch.batchNo, qty: x.take })) });
+      db.isSample = false;
+      save();
+      toast("Issued " + q.toLocaleString() + " " + p.unit);
+      location.hash = "#/product/" + p.id;
+    });
+  }
+
+  /* ---------- Reminders ---------- */
+  function renderReminders() {
+    const flagged = flaggedBatches();
+    const groups = [
+      ["expired", "Expired", "Take these off the shelf and arrange a return or disposal."],
+      ["m3", "Expiring within 3 months", "Sell these first, or ask the supplier for a swap now."],
+      ["m6", "Expiring within 6 months", "Keep an eye on these and avoid reordering more than you'll sell."]
+    ];
+    const html = groups.map(([key, title, note]) => {
+      const items = flagged.filter((b) => statusOf(b.expiry) === key);
+      if (!items.length) return "";
+      const rows = items.map((b) => {
+        const p = productById(b.productId);
+        const sup = p && supplierOf(p);
+        const contact = sup
+          ? '<div class="btn-row"><a class="btn btn-quiet btn-small" href="' + telLink(sup.phone) + '">Call ' + esc(sup.contact || sup.name) + "</a>" +
+            '<a class="btn btn-small" target="_blank" rel="noopener" href="' + waLink(sup.phone, supplierMessage(sup, p, b)) + '">WhatsApp supplier</a></div>'
+          : "";
+        return '<li class="reminder"><div class="reminder-top"><div>' +
+          '<a class="row-title" href="#/product/' + p.id + '">' + esc(p.name) + "</a>" +
+          '<div class="row-meta">Batch ' + esc(b.batchNo) + " · " + b.qty.toLocaleString() + " " + esc(p.unit) + " · expires " + fmtDate(b.expiry) + "</div>" +
+          "</div><div>" + stamp(b.expiry) + "</div></div>" + contact + "</li>";
+      }).join("");
+      return '<div class="group-head"><h2>' + title + '</h2><span class="count">' + items.length + "</span></div>" +
+        '<p class="group-note">' + note + "</p>" +
+        '<ul class="ledger">' + rows + "</ul>";
+    }).join("");
+
+    const reorder = db.products.filter(needsReorder);
+    const reorderHtml = reorder.length ? '<div class="group-head"><h2>Reorder now</h2><span class="count">' + reorder.length + "</span></div>" +
+      '<p class="group-note">Stock is at or below the reorder level and nothing is on order.</p><ul class="ledger">' +
+      reorder.map((p) => {
+        const l = levelsOf(p); const sup = supplierOf(p);
+        return '<li class="reminder"><a class="row-title" href="#/product/' + p.id + '">' + esc(p.name) + "</a>" +
+          '<div class="row-meta"><strong class="' + LEVEL[l.status].cls + '">' + LEVEL[l.status].label + "</strong> · " + fmtNum(l.usable) + " on hand, reorder level " +
+          fmtNum(l.reorderLevel) + " · suggested order " + fmtNum(l.reorderQty) + " " + esc(p.unit) + "</div>" +
+          '<div class="btn-row"><a class="btn btn-small" href="#/order/' + p.id + '">Place order</a>' +
+          (sup ? '<a class="btn btn-quiet btn-small" href="' + telLink(sup.phone) + '">Call ' + esc(sup.contact || sup.name) + "</a>" : "") + "</div></li>";
+      }).join("") + "</ul>" : "";
+    const open = (db.orders || []).filter((o) => o.status === "open").sort((a, b) => a.expectedOn.localeCompare(b.expectedOn));
+    const ordersHtmlAll = open.length ? '<div class="group-head"><h2>Waiting for delivery</h2><span class="count">' + open.length + "</span></div>" +
+      '<ul class="ledger">' + open.map((o) => {
+        const p = productById(o.productId); if (!p) return "";
+        const sup = db.suppliers.find((x) => x.id === o.supplierId);
+        const d = Math.round((parse(o.expectedOn) - today()) / DAY);
+        return '<li class="reminder"><a class="row-title" href="#/product/' + p.id + '">' + esc(p.name) + "</a>" +
+          '<div class="row-meta">' + fmtNum(o.qty) + " " + esc(p.unit) + " from " + esc(sup ? sup.name : "supplier") + " · " +
+          (d < 0 ? '<strong class="s-expired">overdue by ' + plural(-d, "day", "days") + "</strong>" : "expected " + fmtDate(o.expectedOn)) + "</div></li>";
+      }).join("") + "</ul>" : "";
+    view.innerHTML = "<h1>Reminders</h1>" +
+      '<p class="lede">What to reorder, what you\'re waiting for, and batches that have expired or will expire within 6 months.</p>' +
+      reorderHtml + ordersHtmlAll +
+      (html || (reorderHtml || ordersHtmlAll ? "" : '<p class="empty">Nothing needs attention. Well done.</p>'));
+  }
+
+  /* ---------- Suppliers ---------- */
+  function renderSuppliers() {
+    const rows = db.suppliers.map((s) => {
+      const prods = db.products.filter((p) => p.supplierId === s.id);
+      const plist = prods.length
+        ? '<ul class="supplied">' + prods.map((p) => '<li><a href="#/product/' + p.id + '">' + esc(p.name) + "</a></li>").join("") + "</ul>"
+        : '<p class="phone">No products linked yet.</p>';
+      return '<li class="supplier-block"><div class="supplier-line"><div>' +
+        '<p class="company">' + esc(s.name) + "</p>" +
+        '<p class="phone">' + (s.contact ? esc(s.contact) + " · " : "") + esc(s.phone) + " · delivers in about " + plural(s.leadDays || 7, "day", "days") + "</p></div>" +
+        '<div class="btn-row"><a class="btn btn-quiet btn-small" href="' + telLink(s.phone) + '">Call</a>' +
+        '<a class="btn btn-small" target="_blank" rel="noopener" href="' + waLink(s.phone, greet(s) + ", ") + '">WhatsApp</a></div></div>' +
+        '<p class="supplied-head">Supplies ' + plural(prods.length, "product", "products") + "</p>" + plist + "</li>";
+    }).join("");
+
+    view.innerHTML = "<h1>Suppliers</h1>" +
+      '<p class="lede">The companies you order from, the person you deal with, and what each one supplies.</p>' +
+      '<ul class="ledger">' + (rows || '<li class="empty">No suppliers yet. Add your first one below.</li>') + "</ul>" +
+      "<h2>Add a supplier</h2>" +
+      '<form class="form" id="add-supplier">' +
+      '<label>Company name<input name="name" required autocomplete="organization" placeholder="e.g. Ikeja Medical Supplies"></label>' +
+      '<label>Contact person<input name="contact" required autocomplete="name" placeholder="e.g. Chinedu Okafor"></label>' +
+      '<label>Phone number<input name="phone" type="tel" required placeholder="e.g. 0803 123 4567" autocomplete="tel"></label>' +
+      '<label>Usual delivery time in days<input name="leadDays" type="number" min="1" max="120" value="7"></label>' +
+      '<div><button class="btn" type="submit">Add supplier</button></div></form>';
+
+    view.querySelector("#add-supplier").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const name = String(f.get("name")).trim(), contact = String(f.get("contact")).trim(), phone = String(f.get("phone")).trim();
+      if (!name || !contact || intlPhone(phone).length < 10) { toast("Enter the company, contact person and a full phone number."); return; }
+      db.suppliers.push({ id: "s" + Date.now(), name, contact, phone, leadDays: Number(f.get("leadDays")) || 7 });
+      save(); renderSuppliers(); toast("Supplier added");
+    });
+  }
+
+  /* ---------- Plain-English definitions shown when you point at (or tap) a heading ---------- */
+  const GLOSSARY = {
+    "stock": "Every product in your store, how much you have, and when each batch expires.",
+    "reminders": "Things that need your attention: products to reorder, orders not yet delivered, and batches expiring soon.",
+    "suppliers": "The companies you buy from, and the person you talk to at each one.",
+    "on hand": "How much you have on the shelf right now.",
+    "on hand usable": "How much you have on the shelf right now that can still be used. Expired stock is not counted.",
+    "batches": "Separate deliveries of the same product. Each batch has its own batch number and expiry date.",
+    "batch": "A group of packs made at the same time, with the same batch number and expiry date.",
+    "next expiry": "The earliest date any batch of this product will expire.",
+    "stock level": "How your stock compares with the minimum and maximum you should keep.",
+    "average monthly use": "AMC: how much you use or sell in an average month, worked out from the last 3 months.",
+    "months of stock": "How many months your current stock will last if you keep using it at the normal rate.",
+    "lead time": "How many days it usually takes from placing an order to receiving the goods.",
+    "safety stock": "Extra stock kept aside in case a delivery is late or demand suddenly rises. Try never to go below it.",
+    "safety": "The safety stock zone. Stock this low means you could run out if a delivery is late.",
+    "reorder level": "When stock falls to this number, order now. It covers what you'll use while waiting for delivery, plus the safety stock.",
+    "maximum stock": "The most you should keep. Above this, money is tied up and stock may expire before it's used.",
+    "suggested order": "How much to order now to bring stock back up to the maximum, after counting what's already on order.",
+    "reorder zone": "Stock is at or below the reorder level. Place an order now.",
+    "healthy": "Stock is between the reorder level and the maximum. No action needed.",
+    "overstock": "More than the maximum stock. Pause ordering and watch these batches so they don't expire.",
+    "after order arrives": "Where your stock will be once the goods you've ordered are delivered.",
+    "on order, waiting for delivery": "Goods you've ordered from a supplier that haven't arrived yet.",
+    "waiting for delivery": "Goods you've ordered from a supplier that haven't arrived yet.",
+    "batches, in the order to issue them": "Your batches with the soonest expiry at the top. Always give out the top one first.",
+    "issue first": "FEFO, First Expiry First Out: give out this batch before the others, because it expires soonest.",
+    "received": "The date this batch was delivered to your store.",
+    "expiry": "The date after which the medicine must not be sold or used.",
+    "expiry date": "The month and year printed on the pack after which the medicine must not be used.",
+    "qty": "Quantity: how many units.",
+    "quantity": "How many units.",
+    "supplier": "The company you buy this product from.",
+    "recent movements": "A record of stock coming in and going out, like a bin card.",
+    "what happened": "Whether stock came in (received), went out (issued) or was removed.",
+    "expired": "Past its expiry date. Take it off the shelf and don't sell it.",
+    "under months": "Expires soon. Sell it first, or ask the supplier for a swap.",
+    "ok": "More than 6 months before it expires.",
+    "expiring within months": "Batches that will expire soon. Sell these first, or ask the supplier for a swap.",
+    "reorder now": "Products at or below their reorder level, with nothing on order yet.",
+    "receive stock": "Record goods delivered by a supplier, using the Goods Received Note (GRN).",
+    "issue stock": "Record stock going out of the store: to the dispensary, a ward, a customer or another branch.",
+    "place order": "Record an order you've sent to a supplier, so you can track it until it arrives.",
+    "stock rules": "Settings used to work out the safety stock and maximum stock for every product.",
+    "supplies products": "The products you usually buy from this supplier.",
+    "batch number on the pack": "The code printed on the pack that identifies the batch. You need it if there's a recall.",
+    "quantity received": "How many units arrived in this delivery.",
+    "date ordered": "The day you sent the order to the supplier. Used to work out the lead time.",
+    "date received": "The day the goods arrived in your store.",
+    "expected delivery": "The day you expect the goods to arrive, worked out from the lead time.",
+    "issued to": "Where the stock went: the dispensary, a sale, a ward or another branch.",
+    "contact person": "The person you deal with at the supplier's company.",
+    "company name": "The name of the supplier's business.",
+    "usual delivery time in days": "How many days this supplier normally takes to deliver after you order.",
+    "phone number": "The number you call or WhatsApp to reach this supplier.",
+    "product": "The medicine or item, with its strength and form.",
+    "counted in": "The unit you count this product in: tablets, bottles, packs and so on.",
+    "date": "The day it happened.",
+    "pack": "A photo of this batch's pack, so staff can match the shelf to the record, even if the brand or packaging changes.",
+    "scan the pack": "Photograph the pack and the AI reads the batch number, expiry date and name for you. On a capable laptop it works offline, on the device.",
+    "brand / manufacturer": "The brand name and the company that made this batch. The same medicine can come from different makers."
+  };
+  function termKey(text) {
+    return text.toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[0-9]/g, " ").replace(/[.:]+$/, "").replace(/\s+/g, " ").trim();
+  }
+  function applyTips(root) {
+    root.querySelectorAll("h1, h2, h3, dt, th, .fact > span, .gauge-key span, .fefo-tag, .status-text, .filter, .supplied-head, .form label, .rules > p strong, .actions .btn").forEach((el) => {
+      if (el.dataset.tip) return;
+      const text = el.matches("label") ? (el.childNodes[0] && el.childNodes[0].textContent) || "" : el.textContent;
+      const tip = GLOSSARY[termKey(text)];
+      if (!tip) return;
+      el.dataset.tip = tip;
+      el.classList.add("term");
+      if (!el.matches("a, button, label")) el.tabIndex = 0;
+    });
+  }
+  const tipEl = document.createElement("div");
+  tipEl.id = "tip"; tipEl.setAttribute("role", "tooltip"); tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+  let tipFor = null;
+  function showTip(el) {
+    tipFor = el;
+    tipEl.textContent = el.dataset.tip; tipEl.hidden = false;
+    const r = el.getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+    let top = r.bottom + 8;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 8);
+    tipEl.style.left = left + "px"; tipEl.style.top = top + "px";
+  }
+  function hideTip() { tipEl.hidden = true; tipFor = null; }
+  document.addEventListener("mouseover", (e) => { const el = e.target.closest("[data-tip]"); if (el) showTip(el); });
+  document.addEventListener("mouseout", (e) => { const el = e.target.closest("[data-tip]"); if (el && !el.contains(e.relatedTarget)) hideTip(); });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-tip]"); if (el) showTip(el); else hideTip(); });
+  document.addEventListener("focusout", hideTip);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
+  window.addEventListener("scroll", () => { if (tipFor) hideTip(); }, { passive: true });
+  new MutationObserver(() => { applyTips(view); fillPhotos(view); }).observe(view, { childList: true, subtree: true });
+  view.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-open]");
+    if (!b) return;
+    const batch = db.batches.find((x) => x.id === b.dataset.open);
+    const prod = batch && productById(batch.productId);
+    openPhoto(b.dataset.open, prod ? prod.name + ", batch " + batch.batchNo + (batch.brand ? " (" + batch.brand + ")" : "") : "Pack photo");
+  });
+
+  /* ---------- Routing ---------- */
+  function updateCount() {
+    const n = flaggedBatches().filter((b) => statusOf(b.expiry) !== "m6").length + db.products.filter(needsReorder).length;
+    const el = document.getElementById("reminder-count");
+    el.textContent = n; el.hidden = n === 0;
+    el.setAttribute("aria-label", n + " urgent");
+  }
+  function route() {
+    const parts = (location.hash || "#/stock").slice(2).split("/");
+    const page = parts[0] || "stock";
+    document.querySelectorAll(".tabs a").forEach((a) => {
+      if (a.dataset.tab === page || (["product", "receive", "issue", "order"].includes(page) && a.dataset.tab === "stock")) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    });
+    if (page === "product") renderProduct(parts[1]);
+    else if (page === "receive") renderReceive(parts[1], parts[2]);
+    else if (page === "order") renderOrder(parts[1]);
+    else if (page === "issue") renderIssue(parts[1]);
+    else if (page === "reminders") renderReminders();
+    else if (page === "suppliers") renderSuppliers();
+    else renderStock();
+    updateCount();
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", () => { route(); view.focus({ preventScroll: true }); });
+  try { if (!localStorage.getItem(STORE_KEY)) save(); } catch (e) { /* storage unavailable */ }
+  if (navigator.onLine && location.protocol.startsWith("http")) setTimeout(() => loadAI().catch(() => {}), 1500);
+  route();
+})();
+
+</script>
+</body>
+</html>
