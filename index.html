@@ -348,6 +348,8 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
 .cam-tip { margin: 0 0 0.6rem; font-weight: 600; }
 .cam-btn:disabled { opacity: 0.55; cursor: default; }
 
+.err-detail { display: block; margin-top: 0.4rem; font-weight: 400; font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+
 </style>
 </head>
 <body>
@@ -1214,10 +1216,14 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
           (missing.length && n < 2 ? "<p class=\"hint-second\">Couldn't see the " + missing.join(" or ") + ". They're often printed on a flap or the end of the pack: <strong>add a second photo of that side</strong>, or type them in.</p>"
             : missing.length ? "<p>Type the " + missing.join(" and ") + " in below.</p>" : "") + "</div>";
       } catch (err) {
-        const msg = /app.?check|403|permission/i.test(String(err && err.message)) ? "The AI service isn't fully set up yet (App Check)."
+        const raw = String((err && (err.message || err.name)) || err);
+        console.error("ShelfSafe scan error:", err);
+        const msg = /app.?check/i.test(raw) ? "The AI service couldn't confirm this app (App Check)."
+          : /referer|referrer|api.?key|403/i.test(raw) ? "The AI service refused this request (API key or website settings)."
           : !navigator.onLine ? "You're offline and this device can't run the on-device AI."
-          : "Couldn't read the pack (" + esc(String(err && err.message || err).slice(0, 140)) + ").";
-        body = '<p class="warn">' + msg + " The photo will still be saved. Type the details in below.</p>";
+          : "Couldn't read the pack.";
+        body = '<p class="warn">' + msg + " The photo will still be saved. Type the details in below." +
+          '<span class="err-detail">Details for support: ' + esc(raw.slice(0, 300)) + "</span></p>";
       }
       status.remove();
       if (form.batchNo.value && form.expiry.value) scanEl.querySelectorAll(".hint-second").forEach((el) => el.remove());
