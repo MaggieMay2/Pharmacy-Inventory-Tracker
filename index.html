@@ -371,8 +371,11 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <script>
-/* ShelfSafe, step 1: stock list, product detail, reminders and suppliers.
-   Data is kept in this browser (localStorage). No AI yet: that arrives in step 4. */
+/* ShelfSafe: expiry and stock tracker for community pharmacies.
+   Pages: stock list, product detail, receive / issue / order, reminders and suppliers.
+   "Scan the pack" uses Firebase AI Logic with hybrid inference: Gemini Nano on the device when possible, the cloud otherwise.
+   Records are kept in this browser (localStorage); pack photos in IndexedDB.
+   All stock calculations are plain code, never AI. */
 (function () {
   "use strict";
 
@@ -607,7 +610,7 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
           qty: qty + Math.round(monthly * 1.5), orderedOn: iso(orderedOn), receivedOn: iso(receivedOn)
         });
       });
-      // Weekly issues over the last 17 weeks, so monthly use can be calculated in step 3
+      // Weekly issues over the last 17 weeks, so average monthly use (AMC) can be worked out
       for (let w = 1; w <= 17; w++) {
         const wobble = 0.8 + (((i + 1) * (w + 3)) % 5) / 10;
         const qty = Math.max(1, Math.round((monthly * 12 / 52) * wobble));
@@ -1245,7 +1248,7 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
       }
       if (status) status.remove();
       if (form.batchNo.value && form.expiry.value) scanEl.querySelectorAll(".hint-second").forEach((el) => el.remove());
-      row.innerHTML = head + body + (failed ? "" : "");
+      row.innerHTML = head + body;
       if (failed) {
         const again = document.createElement("button");
         again.type = "button"; again.className = "btn btn-quiet btn-small retry"; again.textContent = "Try again";
@@ -1318,7 +1321,6 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
       location.hash = "#/product/" + productId;
     });
   }
-  // Turn the expiry as printed (02/2027, 02-27, FEB 2027, 2027-02-28 …) into YYYY-MM
   // Pick the counting unit from the dosage form printed on the pack
   function unitFromForm(f) {
     const t = String(f || "").toLowerCase();
@@ -1331,6 +1333,7 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
     if (/vial|injection/.test(t)) return "vials";
     return "";
   }
+  // Turn the expiry as printed (02/2027, 02-27, FEB 2027, 2027-02-28 …) into YYYY-MM
   function normalizeExpiry(raw) {
     const t = String(raw || "").trim().toUpperCase().replace(/^(EXP(IRY)?(\s*DATE)?|USE\s*BY|BEST\s*BEFORE)[\s:.]*/, "");
     if (!t) return "";
