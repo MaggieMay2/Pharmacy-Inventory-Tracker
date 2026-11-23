@@ -23,7 +23,7 @@ Small pharmacies in Nigeria track stock on bin cards and in notebooks. Drugs exp
 - **Plain-English help:** point at or tap any heading to see what it means.
 
 ## How it uses Firebase AI Logic (hybrid inference)
-**Scan the pack.** On the Receive stock form, the pharmacist photographs a drug pack. Firebase AI Logic reads the product name, strength, brand, manufacturer, batch number and expiry date and fills in the form. Every AI-filled field is highlighted so it can be checked against the pack before saving.
+**Scan the pack.** On the Receive stock form, the pharmacist photographs a drug pack: with the phone camera, or on a laptop with the built-in webcam (**Use laptop camera**) or an uploaded photo. Up to two photos per batch, for example the front and then the flap with the batch number and expiry. Firebase AI Logic reads the product name, strength, brand, manufacturer, batch number and expiry date and fills in the form. Every AI-filled field is highlighted so it can be checked against the pack before saving.
 
 - **On-device first (Gemini Nano in Chrome):** the model runs with `InferenceMode.PREFER_ON_DEVICE`. On a capable laptop the photo never leaves the computer, so it's private, free and works offline once the page is loaded.
 - **Cloud fallback (Gemini Developer API):** on phones and low-cost laptops, which is what most Nigerian pharmacies use, the same request goes to the cloud automatically.

@@ -21,6 +21,7 @@ Built and tested (steps 1-4, cloud scanning tested on the live site):
 - Plain-English definitions on headings (hover, tap or keyboard focus).
 - Stock rules: safety stock months and order interval, editable.
 - Scan the pack (Receive stock): Firebase AI Logic, PREFER_ON_DEVICE, JSON schema on both paths; fills product, brand/manufacturer, batch number, expiry; AI-filled fields highlighted; "Read on this device" / "Read in the cloud" label from response.inferenceSource. Firebase SDK 13.2.0 loaded from gstatic CDN with dynamic import, preloaded when online.
+- Laptop camera: "Use laptop camera" button (shown on computers with a mouse/trackpad) opens the webcam in a dialog (getUserMedia) and captures a JPEG for scanning; works offline.
 - Up to 2 photos per scan (e.g. front, then the flap with batch and expiry); a second photo fills only empty fields. Expiry text normalised to YYYY-MM (02/2027, FEB 2027, EXP 03 2028...). Cloud model: gemini-3.5-flash-lite.
 - Pack photos: shrunk to JPEG max 1024 px, stored on the device in IndexedDB (database "shelfsafe-photos", keyed by batch id); thumbnail on product page and stock list; tap to enlarge; "Add photo" for older batches. Brand / manufacturer field on each batch.
 
