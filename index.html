@@ -333,6 +333,14 @@ main:focus, main:focus-visible { outline: none; }
 .scan-result > * { min-width: 0; flex: 1; }
 .scan-result > img { flex: none; }
 .scan-result p { overflow-wrap: anywhere; }
+.scan-result:not(:empty) { display: grid; gap: 0.75rem; }
+.scan-row { display: flex; gap: 0.9rem; align-items: flex-start; }
+.scan-row > * { min-width: 0; flex: 1; }
+.scan-row > img { flex: none; }
+.scan-row p { margin: 0 0 0.4rem; overflow-wrap: anywhere; }
+.scan-btn.is-disabled { opacity: 0.55; pointer-events: none; }
+#photo-view .photos { display: grid; gap: 0.5rem; }
+#photo-view .photos img { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto; border-radius: 6px; }
 
 </style>
 </head>
@@ -489,17 +497,21 @@ main:focus, main:focus-visible { outline: none; }
       } catch (e) { /* photo storage unavailable */ }
     }
   }
-  function openPhoto(id, caption) {
+  async function openPhoto(id, caption) {
     if (!photoUrls[id]) return;
     let dlg = document.getElementById("photo-view");
     if (!dlg) {
       dlg = document.createElement("dialog"); dlg.id = "photo-view";
-      dlg.innerHTML = '<img alt=""><p></p><form method="dialog"><button class="btn">Close</button></form>';
+      dlg.innerHTML = '<div class="photos"></div><p></p><form method="dialog"><button class="btn">Close</button></form>';
       dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
       document.body.appendChild(dlg);
     }
-    dlg.querySelector("img").src = photoUrls[id];
-    dlg.querySelector("img").alt = caption;
+    const urls = [photoUrls[id]];
+    try {
+      if (!photoUrls[id + "#2"]) { const b2 = await getPhoto(id + "#2"); if (b2) photoUrls[id + "#2"] = URL.createObjectURL(b2); }
+      if (photoUrls[id + "#2"]) urls.push(photoUrls[id + "#2"]);
+    } catch (e) { /* only one photo */ }
+    dlg.querySelector(".photos").innerHTML = urls.map((u, i) => '<img src="' + u + '" alt="' + esc(caption) + ", photo " + (i + 1) + '">').join("");
     dlg.querySelector("p").textContent = caption;
     dlg.showModal();
   }
@@ -1099,42 +1111,66 @@ main:focus, main:focus-visible { outline: none; }
 
     const form = view.querySelector("#receive-form");
     const sel = view.querySelector("#product-select");
-    let scannedPhoto = null;
+    const scannedPhotos = [];   // up to 2: e.g. the front, and the side with batch and expiry
     const scanEl = view.querySelector("#scan-result");
-    view.querySelector("#scan-file").addEventListener("change", async (e) => {
+    const scanFile = view.querySelector("#scan-file");
+    const scanBtn = view.querySelector(".scan-btn");
+    scanFile.addEventListener("change", async (e) => {
       const file = e.target.files[0];
+      scanFile.value = "";
       if (!file) return;
-      scanEl.innerHTML = '<p class="scan-status">Reading the pack…</p>';
+      if (scannedPhotos.length >= 2) return toast("Two photos per batch is the limit.");
+      const status = document.createElement("p");
+      status.className = "scan-status"; status.textContent = "Reading the pack…";
+      scanEl.appendChild(status);
       let blob;
-      try { blob = await shrinkPhoto(file); } catch (err) { scanEl.innerHTML = '<p class="warn">' + esc(err.message) + "</p>"; return; }
-      scannedPhoto = blob;
-      const preview = URL.createObjectURL(blob);
-      const head = '<img class="scan-preview" src="' + preview + '" alt="Photo of the pack">';
+      try { blob = await shrinkPhoto(file); } catch (err) { status.className = "warn"; status.textContent = err.message; return; }
+      scannedPhotos.push(blob);
+      const n = scannedPhotos.length;
+      const head = '<img class="scan-preview" src="' + URL.createObjectURL(blob) + '" alt="Photo ' + n + ' of the pack">';
+      const row = document.createElement("div");
+      row.className = "scan-row";
+      let body;
       try {
         const { data, source } = await readPack(blob);
         const filled = [];
-        const set = (name, val) => { if (val && form[name]) { form[name].value = val; form[name].classList.add("ai-filled"); filled.push(name); } };
-        set("batchNo", String(data.batchNumber || "").toUpperCase());
-        if (/^\d{4}-\d{2}$/.test(data.expiry || "")) { set("expiry", data.expiry); form.expiry.dispatchEvent(new Event("input")); }
-        set("brand", [data.brand, data.manufacturer].filter(Boolean).join(", "));
+        // Only fill boxes that are still empty, so a second photo adds to the first instead of overwriting it
+        const set = (name, val, label) => {
+          if (val && form[name] && !form[name].value) { form[name].value = val; form[name].classList.add("ai-filled"); filled.push(label); }
+        };
+        set("batchNo", String(data.batchNumber || "").trim().toUpperCase(), "batch number");
+        const exp = normalizeExpiry(data.expiry);
+        if (exp && !form.expiry.value) { set("expiry", exp, "expiry date"); form.expiry.dispatchEvent(new Event("input")); }
+        set("brand", [data.brand, data.manufacturer].filter(Boolean).join(", "), "brand");
         const fullName = [data.productName, data.strength, data.form].filter(Boolean).join(" ");
-        if (sel && fullName) {
-          const words = String(data.productName || "").toLowerCase().split(/[\s/]+/).filter((w) => w.length > 3);
+        if (sel && fullName && !sel.value) {
+          const words = String(data.productName || "").toLowerCase().split(/[\s/,+]+/).filter((w) => w.length > 3);
+          const strength = String(data.strength || "").toLowerCase().replace(/\s/g, "");
           const match = db.products.find((x) => words.length && words.every((w) => x.name.toLowerCase().includes(w)) &&
-            (!data.strength || x.name.toLowerCase().replace(/\s/g, "").includes(String(data.strength).toLowerCase().replace(/\s/g, ""))));
-          if (match) { sel.value = match.id; sel.dispatchEvent(new Event("change")); sel.classList.add("ai-filled"); }
-          else { sel.value = "new"; sel.dispatchEvent(new Event("change")); set("newName", fullName); }
+            (!strength || x.name.toLowerCase().replace(/\s/g, "").includes(strength)));
+          if (match) { sel.value = match.id; sel.dispatchEvent(new Event("change")); sel.classList.add("ai-filled"); filled.push("product"); }
+          else { sel.value = "new"; sel.dispatchEvent(new Event("change")); set("newName", fullName, "new product name"); }
         }
-        scanEl.innerHTML = head + '<div><p class="source source-' + (source === "on-device" ? "device" : "cloud") + '">' +
+        const missing = [];
+        if (!form.batchNo.value) missing.push("batch number");
+        if (!form.expiry.value) missing.push("expiry date");
+        body = '<div><p class="source source-' + (source === "on-device" ? "device" : "cloud") + '">' +
           (source === "on-device" ? "Read on this device (offline-capable)" : "Read in the cloud") + "</p>" +
-          "<p>" + (filled.length ? "Filled in " + filled.length + " field" + (filled.length > 1 ? "s" : "") + ", highlighted below. <strong>Check each one against the pack before saving.</strong>"
-            : "Couldn't read the details clearly. Type them in below, or try a sharper photo.") + "</p></div>";
+          "<p>" + (filled.length ? "Filled in: " + filled.join(", ") + ". <strong>Check each one against the pack before saving.</strong>"
+            : "Nothing new could be read from this photo.") + "</p>" +
+          (missing.length && n < 2 ? "<p>Couldn't see the " + missing.join(" or ") + ". They're often printed on a flap or the end of the pack: <strong>add a second photo of that side</strong>, or type them in.</p>"
+            : missing.length ? "<p>Type the " + missing.join(" and ") + " in below.</p>" : "") + "</div>";
       } catch (err) {
-        const msg = /app.?check|403|permission/i.test(String(err && err.message)) ? "The AI service isn't fully set up yet (App Check). The photo will still be saved: type the details in below."
-          : !navigator.onLine ? "You're offline and this device can't run the on-device AI. The photo will still be saved: type the details in below."
-          : "Couldn't read the pack (" + esc(String(err && err.message || err).slice(0, 140)) + "). The photo will still be saved: type the details in below.";
-        scanEl.innerHTML = head + '<p class="warn">' + msg + "</p>";
+        const msg = /app.?check|403|permission/i.test(String(err && err.message)) ? "The AI service isn't fully set up yet (App Check)."
+          : !navigator.onLine ? "You're offline and this device can't run the on-device AI."
+          : "Couldn't read the pack (" + esc(String(err && err.message || err).slice(0, 140)) + ").";
+        body = '<p class="warn">' + msg + " The photo will still be saved. Type the details in below.</p>";
       }
+      status.remove();
+      row.innerHTML = head + body;
+      scanEl.appendChild(row);
+      scanBtn.firstChild.textContent = n < 2 ? "Add a second photo" : "Two photos added";
+      if (n >= 2) { scanBtn.classList.add("is-disabled"); scanFile.disabled = true; }
     });
     if (sel) sel.addEventListener("change", () => {
       view.querySelector("#new-product").hidden = sel.value !== "new";
@@ -1181,11 +1217,13 @@ main:focus, main:focus-visible { outline: none; }
       let batchId;
       if (same) { same.qty += qty; batchId = same.id; if (brand && !same.brand) same.brand = brand; }
       else { batchId = "b" + Date.now(); db.batches.push({ id: batchId, productId, batchNo, expiry, qty, receivedOn, supplierId, brand }); }
-      if (scannedPhoto) {
+      if (scannedPhotos.length) {
         const target = db.batches.find((b) => b.id === batchId);
         target.hasPhoto = true;
-        putPhoto(batchId, scannedPhoto).catch(() => toast("The photo couldn't be saved on this device."));
-        delete photoUrls[batchId];
+        target.photoCount = scannedPhotos.length;
+        scannedPhotos.forEach((blob, i) =>
+          putPhoto(i ? batchId + "#" + (i + 1) : batchId, blob).catch(() => toast("A photo couldn't be saved on this device.")));
+        delete photoUrls[batchId]; delete photoUrls[batchId + "#2"];
       }
       db.receipts.push({ id: "r" + Date.now(), productId, batchNo, expiry, supplierId, qty, orderedOn, receivedOn });
       if (order) { order.status = "received"; order.receivedOn = receivedOn; }
@@ -1195,6 +1233,22 @@ main:focus, main:focus-visible { outline: none; }
       toast("Received " + qty.toLocaleString() + " " + prod.unit + (n ? " as Batch " + n.n : ""));
       location.hash = "#/product/" + productId;
     });
+  }
+  // Turn the expiry as printed (02/2027, 02-27, FEB 2027, 2027-02-28 …) into YYYY-MM
+  function normalizeExpiry(raw) {
+    const t = String(raw || "").trim().toUpperCase().replace(/^(EXP(IRY)?(\s*DATE)?|USE\s*BY|BEST\s*BEFORE)[\s:.]*/, "");
+    if (!t) return "";
+    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    const yr = (y) => (y.length === 2 ? "20" + y : y);
+    let m;
+    if ((m = t.match(/^(\d{4})[-/.](\d{1,2})/))) return m[1] + "-" + m[2].padStart(2, "0");
+    if ((m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/))) return yr(m[3]) + "-" + m[2].padStart(2, "0"); // DD/MM/YYYY
+    if ((m = t.match(/^(\d{1,2})[-/. ](\d{4}|\d{2})$/))) return yr(m[2]) + "-" + m[1].padStart(2, "0");
+    if ((m = t.match(/([A-Z]{3})[A-Z]*[-/. ]*(\d{4}|\d{2})/))) {
+      const i = months.indexOf(m[1]);
+      if (i >= 0) return yr(m[2]) + "-" + String(i + 1).padStart(2, "0");
+    }
+    return "";
   }
   function monthEnd(yyyyMm) { const [y, m] = yyyyMm.split("-").map(Number); return iso(new Date(y, m, 0)); }
 
