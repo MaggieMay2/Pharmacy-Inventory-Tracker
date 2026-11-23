@@ -349,6 +349,7 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
 .cam-btn:disabled { opacity: 0.55; cursor: default; }
 
 .err-detail { display: block; margin-top: 0.4rem; font-weight: 400; font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+.retry { display: block; margin-top: 0.5rem; }
 
 </style>
 </head>
@@ -469,7 +470,15 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
     const model = await loadAI();
     try { model.initializeDeviceModel && model.initializeDeviceModel(); } catch (e) { /* not available on this device */ }
     const imagePart = { inlineData: { data: await blobToBase64(blob), mimeType: "image/jpeg" } };
-    const result = await model.generateContent([SCAN_PROMPT, imagePart]);
+    let result;
+    for (let attempt = 0; ; attempt++) {
+      try { result = await model.generateContent([SCAN_PROMPT, imagePart]); break; }
+      catch (err) {
+        const busy = /\b(500|503|429)\b|high demand|overloaded|unavailable|try again later/i.test(String(err && err.message));
+        if (!busy || attempt >= 2) throw err;
+        await new Promise((r) => setTimeout(r, attempt ? 4000 : 1500)); // wait, then try again
+      }
+    }
     const src = String(result.response.inferenceSource || "").toUpperCase();
     let data = {};
     try { data = JSON.parse(result.response.text()); } catch (e) { throw new Error("The AI's answer couldn't be read. Try a clearer photo."); }
@@ -1178,10 +1187,17 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
       try { blob = await shrinkPhoto(file); } catch (err) { status.className = "warn"; status.textContent = err.message; return; }
       scannedPhotos.push(blob);
       const n = scannedPhotos.length;
-      const head = '<img class="scan-preview" src="' + URL.createObjectURL(blob) + '" alt="Photo ' + n + ' of the pack">';
       const row = document.createElement("div");
       row.className = "scan-row";
-      let body;
+      await readInto(blob, n, row, status);
+      scanEl.appendChild(row);
+      scanBtn.firstChild.textContent = n < 2 ? "Add a second photo" : "Two photos added";
+      if (camBtn) camBtn.textContent = n < 2 ? "Use laptop camera again" : "Two photos added";
+      if (n >= 2) { scanBtn.classList.add("is-disabled"); scanFile.disabled = true; if (camBtn) camBtn.disabled = true; }
+    }
+    async function readInto(blob, n, row, status) {
+      const head = '<img class="scan-preview" src="' + URL.createObjectURL(blob) + '" alt="Photo ' + n + ' of the pack">';
+      let body, failed = false;
       try {
         const { data, source } = await readPack(blob);
         const filled = [];
@@ -1216,22 +1232,29 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
           (missing.length && n < 2 ? "<p class=\"hint-second\">Couldn't see the " + missing.join(" or ") + ". They're often printed on a flap or the end of the pack: <strong>add a second photo of that side</strong>, or type them in.</p>"
             : missing.length ? "<p>Type the " + missing.join(" and ") + " in below.</p>" : "") + "</div>";
       } catch (err) {
+        failed = true;
         const raw = String((err && (err.message || err.name)) || err);
         console.error("ShelfSafe scan error:", err);
-        const msg = /app.?check/i.test(raw) ? "The AI service couldn't confirm this app (App Check)."
+        const msg = /app.?check/i.test(raw) ? "This browser didn't pass the security check (App Check). An ad blocker or privacy extension is the usual cause: allow this site, or try an incognito window."
+          : /high demand|overloaded|\b(500|503|429)\b/i.test(raw) ? "The cloud AI is busy right now. Wait a moment and tap Try again."
           : /referer|referrer|api.?key|403/i.test(raw) ? "The AI service refused this request (API key or website settings)."
           : !navigator.onLine ? "You're offline and this device can't run the on-device AI."
           : "Couldn't read the pack.";
         body = '<p class="warn">' + msg + " The photo will still be saved. Type the details in below." +
           '<span class="err-detail">Details for support: ' + esc(raw.slice(0, 300)) + "</span></p>";
       }
-      status.remove();
+      if (status) status.remove();
       if (form.batchNo.value && form.expiry.value) scanEl.querySelectorAll(".hint-second").forEach((el) => el.remove());
-      row.innerHTML = head + body;
-      scanEl.appendChild(row);
-      scanBtn.firstChild.textContent = n < 2 ? "Add a second photo" : "Two photos added";
-      if (camBtn) camBtn.textContent = n < 2 ? "Use laptop camera again" : "Two photos added";
-      if (n >= 2) { scanBtn.classList.add("is-disabled"); scanFile.disabled = true; if (camBtn) camBtn.disabled = true; }
+      row.innerHTML = head + body + (failed ? "" : "");
+      if (failed) {
+        const again = document.createElement("button");
+        again.type = "button"; again.className = "btn btn-quiet btn-small retry"; again.textContent = "Try again";
+        again.addEventListener("click", async () => {
+          again.disabled = true; again.textContent = "Reading the pack…";
+          await readInto(blob, n, row, null);
+        });
+        (row.querySelector(".warn") || row).appendChild(again);
+      }
     }
     if (sel) sel.addEventListener("change", () => {
       view.querySelector("#new-product").hidden = sel.value !== "new";
