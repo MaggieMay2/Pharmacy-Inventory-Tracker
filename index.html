@@ -373,6 +373,8 @@ main:focus, main:focus-visible { outline: none; }
   // Fraud Defense (reCAPTCHA Enterprise) website key for App Check. It is public by design.
   const RECAPTCHA_SITE_KEY = "6LcGfS0uAAAAAKJqpBFy95hkATU6qiDyfFelGUdG";
   const FIREBASE_VERSION = "13.2.0";
+  // Cloud fallback model (Gemini Developer API). Firebase lists this as the default hybrid fallback model.
+  const CLOUD_MODEL = "gemini-3.5-flash-lite";
   const FB = (name) => "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-" + name + ".js";
 
   /* ---------- Firebase AI Logic: hybrid inference ----------
@@ -409,7 +411,7 @@ main:focus, main:focus-visible { outline: none; }
           },
           promptOptions: { responseConstraint: schema }
         },
-        inCloudParams: { generationConfig: { responseMimeType: "application/json", responseSchema: schema } }
+        inCloudParams: { model: CLOUD_MODEL, generationConfig: { responseMimeType: "application/json", responseSchema: schema } }
       });
       return model;
     })();
