@@ -4,7 +4,7 @@
 
 ShelfSafe is an expiry and stock tracker for community pharmacies. It is built for the #BuildHybridAI 2026 hackathon (Web/Chrome) with Firebase AI Logic.
 
-**Live app:** https://maggiemay2.github.io/Pharmacy-Inventory-Tracker/
+**Live app:** https://maggiemay2.github.io/shelfsafe/
 
 ## The problem
 Small pharmacies in Nigeria track stock on bin cards and in notebooks. Drugs expire on the shelf unnoticed, which wastes money and risks a patient receiving expired medicine. Other drugs run out because nobody worked out when to reorder. Many of these pharmacies run on low-cost laptops with unreliable power and internet.

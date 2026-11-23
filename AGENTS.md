@@ -9,7 +9,7 @@ Hackathon: #BuildHybridAI 2026 (Devpost). Deadline Mon 30 Nov 2026, 2:00 PM PT (
 Done statement: A pharmacist can photograph a drug pack, have the app fill in its name, batch and expiry date (on-device when possible, cloud otherwise), and see which products expire within 6 and 3 months, which need reordering, and contact the supplier in one tap.
 
 ## Status
-Built and tested (steps 1-4; the live AI call still has to be tested on the hosted site):
+Built and tested (steps 1-4, cloud scanning tested on the live site):
 - Stock list: products sorted by soonest expiry, colour-coded expiry stamp, batches numbered by arrival (Batch 1 = oldest) with date received, stock-level badge, filters, search, reminder banner.
 - Product page: batches in FEFO order ("Issue first" skips expired batches), stock-level panel with gauge (safety / reorder zone / healthy / overstock), AMC, months of stock, lead time, safety stock, reorder level, maximum stock, suggested order, ordering-period projection, expiry risk, orders waiting for delivery, supplier contact, recent movements.
 - Receive stock (GRN), with short-dated warning; refuses expired batches; can add a new product; can close an open order.
@@ -21,11 +21,14 @@ Built and tested (steps 1-4; the live AI call still has to be tested on the host
 - Plain-English definitions on headings (hover, tap or keyboard focus).
 - Stock rules: safety stock months and order interval, editable.
 - Scan the pack (Receive stock): Firebase AI Logic, PREFER_ON_DEVICE, JSON schema on both paths; fills product, brand/manufacturer, batch number, expiry; AI-filled fields highlighted; "Read on this device" / "Read in the cloud" label from response.inferenceSource. Firebase SDK 13.2.0 loaded from gstatic CDN with dynamic import, preloaded when online.
+- Up to 2 photos per scan (e.g. front, then the flap with batch and expiry); a second photo fills only empty fields. Expiry text normalised to YYYY-MM (02/2027, FEB 2027, EXP 03 2028...). Cloud model: gemini-3.5-flash-lite.
 - Pack photos: shrunk to JPEG max 1024 px, stored on the device in IndexedDB (database "shelfsafe-photos", keyed by batch id); thumbnail on product page and stock list; tap to enlarge; "Add photo" for older batches. Brand / manufacturer field on each batch.
 
 Next:
-- App Check: Firebase enforces it for AI Logic since 2 Nov 2026. Create a Fraud Defense (reCAPTCHA Enterprise) website key for maggiemay2.github.io in Google Cloud, register it in Firebase App Check (classic reCAPTCHA v3 is no longer accepted), and paste the site key into RECAPTCHA_SITE_KEY in index.html.
-- Test scanning on the live site (cloud on Ifeoma's laptop and phone; on-device on a borrowed 16 GB laptop).
+- Done: App Check with Fraud Defense (reCAPTCHA Enterprise) key for maggiemay2.github.io, registered in Firebase. Cloud scanning tested on the live site (Ciprofloxacin pack: product, brand, batch and expiry all read).
+- Restrict the browser API key to https://maggiemay2.github.io/* (application restriction only; don't restrict APIs).
+- Test on-device scanning on a borrowed 16 GB laptop (Thu 26 / Fri 27 Nov), Wi-Fi off.
+- Demo video script, Devpost description, final checks, submit by Sun 29 Nov.
 - Step 5 (if time): AI-written supplier messages. Backup/export of records and photos.
 - Step 6: App Check, restrict the API key to the GitHub Pages address, final README, demo video.
 
@@ -45,7 +48,7 @@ Next:
 - Firebase JS SDK from the official CDN. Firebase AI Logic with hybrid inference (InferenceMode.PREFER_ON_DEVICE): Gemini Nano in Chrome on desktop when available, Gemini Developer API in the cloud otherwise. Structured JSON output for scans.
 - Firebase App Check (reCAPTCHA; debug token for judges).
 - Records saved in the browser (localStorage); pack photos in IndexedDB. Sample data is generated relative to today's date.
-- Hosting: GitHub Pages from github.com/MaggieMay2/Pharmacy-Inventory-Tracker. Licence: Apache 2.0.
+- Hosting: GitHub Pages from github.com/MaggieMay2/shelfsafe. Licence: Apache 2.0.
 - Firebase project: shelfsafe-6f849.
 
 ## Design
