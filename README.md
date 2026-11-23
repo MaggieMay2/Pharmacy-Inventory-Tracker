@@ -49,13 +49,13 @@ Your records are saved in your browser on your device. No account is needed.
 ShelfSafe is a single file, `index.html`, so there's nothing to install or build.
 - **Quickest:** download `index.html` and open it in Chrome.
 - **Online:** fork this repository and turn on GitHub Pages (Settings → Pages → Deploy from a branch → `main` → `/ (root)`).
-- **AI scanning with your own Firebase project:** create a Firebase project, enable Firebase AI Logic with the Gemini Developer API, register a web app, set up App Check with reCAPTCHA v3, and replace `FIREBASE_CONFIG` and `RECAPTCHA_SITE_KEY` near the top of `index.html`.
+- **AI scanning with your own Firebase project:** create a Firebase project, enable Firebase AI Logic with the Gemini Developer API, register a web app, set up App Check with a Fraud Defense (reCAPTCHA Enterprise) website key, and replace `FIREBASE_CONFIG` and `RECAPTCHA_SITE_KEY` near the top of `index.html`.
 - **On-device inference:** use Chrome on a desktop or laptop (version 139 or later) that meets Chrome's built-in AI hardware requirements. Enable `chrome://flags/#prompt-api-for-gemini-nano` and `chrome://flags/#prompt-api-for-gemini-nano-multimodal-input`, then restart Chrome. Other devices use the cloud automatically.
 
 ## Built with
 - HTML, CSS and JavaScript in one file
 - Firebase AI Logic (hybrid inference: Gemini Nano on-device, Gemini Developer API in the cloud)
-- Firebase App Check (reCAPTCHA v3)
+- Firebase App Check (Fraud Defense / reCAPTCHA Enterprise)
 - Browser storage: localStorage for records, IndexedDB for pack photos
 - GitHub Pages
 

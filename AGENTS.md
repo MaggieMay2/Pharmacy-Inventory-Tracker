@@ -24,7 +24,7 @@ Built and tested (steps 1-4; the live AI call still has to be tested on the host
 - Pack photos: shrunk to JPEG max 1024 px, stored on the device in IndexedDB (database "shelfsafe-photos", keyed by batch id); thumbnail on product page and stock list; tap to enlarge; "Add photo" for older batches. Brand / manufacturer field on each batch.
 
 Next:
-- App Check: Firebase enforces it for AI Logic since 2 Nov 2026. Create a reCAPTCHA v3 key for maggiemay2.github.io, register it in Firebase App Check, and paste the site key into RECAPTCHA_SITE_KEY in index.html.
+- App Check: Firebase enforces it for AI Logic since 2 Nov 2026. Create a Fraud Defense (reCAPTCHA Enterprise) website key for maggiemay2.github.io in Google Cloud, register it in Firebase App Check (classic reCAPTCHA v3 is no longer accepted), and paste the site key into RECAPTCHA_SITE_KEY in index.html.
 - Test scanning on the live site (cloud on Ifeoma's laptop and phone; on-device on a borrowed 16 GB laptop).
 - Step 5 (if time): AI-written supplier messages. Backup/export of records and photos.
 - Step 6: App Check, restrict the API key to the GitHub Pages address, final README, demo video.

@@ -370,8 +370,8 @@ main:focus, main:focus-visible { outline: none; }
     messagingSenderId: "752345469348",
     appId: "1:752345469348:web:0cdfa66a4a4c5bcf037131"
   };
-  // reCAPTCHA v3 site key for App Check (public). Paste it here once it's created in step 6.
-  const RECAPTCHA_SITE_KEY = "";
+  // Fraud Defense (reCAPTCHA Enterprise) website key for App Check. It is public by design.
+  const RECAPTCHA_SITE_KEY = "6LcGfS0uAAAAAKJqpBFy95hkATU6qiDyfFelGUdG";
   const FIREBASE_VERSION = "13.2.0";
   const FB = (name) => "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-" + name + ".js";
 
@@ -385,7 +385,7 @@ main:focus, main:focus-visible { outline: none; }
       const [{ initializeApp }, ai, appCheck] = await Promise.all([import(FB("app")), import(FB("ai")), import(FB("app-check"))]);
       const app = initializeApp(FIREBASE_CONFIG);
       if (RECAPTCHA_SITE_KEY) {
-        appCheck.initializeAppCheck(app, { provider: new appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY), isTokenAutoRefreshEnabled: true });
+        appCheck.initializeAppCheck(app, { provider: new appCheck.ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY), isTokenAutoRefreshEnabled: true });
       }
       const { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode, Schema } = ai;
       const schema = Schema.object({
