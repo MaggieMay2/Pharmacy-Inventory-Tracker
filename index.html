@@ -1149,7 +1149,11 @@ main:focus, main:focus-visible { outline: none; }
           const match = db.products.find((x) => words.length && words.every((w) => x.name.toLowerCase().includes(w)) &&
             (!strength || x.name.toLowerCase().replace(/\s/g, "").includes(strength)));
           if (match) { sel.value = match.id; sel.dispatchEvent(new Event("change")); sel.classList.add("ai-filled"); filled.push("product"); }
-          else { sel.value = "new"; sel.dispatchEvent(new Event("change")); set("newName", fullName, "new product name"); }
+          else {
+            sel.value = "new"; sel.dispatchEvent(new Event("change")); set("newName", fullName, "new product name");
+            const unit = unitFromForm(data.form);
+            if (unit && form.newUnit) { form.newUnit.value = unit; form.newUnit.classList.add("ai-filled"); }
+          }
         }
         const missing = [];
         if (!form.batchNo.value) missing.push("batch number");
@@ -1158,7 +1162,7 @@ main:focus, main:focus-visible { outline: none; }
           (source === "on-device" ? "Read on this device (offline-capable)" : "Read in the cloud") + "</p>" +
           "<p>" + (filled.length ? "Filled in: " + filled.join(", ") + ". <strong>Check each one against the pack before saving.</strong>"
             : "Nothing new could be read from this photo.") + "</p>" +
-          (missing.length && n < 2 ? "<p>Couldn't see the " + missing.join(" or ") + ". They're often printed on a flap or the end of the pack: <strong>add a second photo of that side</strong>, or type them in.</p>"
+          (missing.length && n < 2 ? "<p class=\"hint-second\">Couldn't see the " + missing.join(" or ") + ". They're often printed on a flap or the end of the pack: <strong>add a second photo of that side</strong>, or type them in.</p>"
             : missing.length ? "<p>Type the " + missing.join(" and ") + " in below.</p>" : "") + "</div>";
       } catch (err) {
         const msg = /app.?check|403|permission/i.test(String(err && err.message)) ? "The AI service isn't fully set up yet (App Check)."
@@ -1167,6 +1171,7 @@ main:focus, main:focus-visible { outline: none; }
         body = '<p class="warn">' + msg + " The photo will still be saved. Type the details in below.</p>";
       }
       status.remove();
+      if (form.batchNo.value && form.expiry.value) scanEl.querySelectorAll(".hint-second").forEach((el) => el.remove());
       row.innerHTML = head + body;
       scanEl.appendChild(row);
       scanBtn.firstChild.textContent = n < 2 ? "Add a second photo" : "Two photos added";
@@ -1235,6 +1240,18 @@ main:focus, main:focus-visible { outline: none; }
     });
   }
   // Turn the expiry as printed (02/2027, 02-27, FEB 2027, 2027-02-28 …) into YYYY-MM
+  // Pick the counting unit from the dosage form printed on the pack
+  function unitFromForm(f) {
+    const t = String(f || "").toLowerCase();
+    if (/capsule/.test(t)) return "capsules";
+    if (/tablet|caplet/.test(t)) return "tablets";
+    if (/drop|syrup|suspension|solution|lotion|mixture|elixir|spray/.test(t)) return "bottles";
+    if (/sachet|powder|granule/.test(t)) return "sachets";
+    if (/cream|ointment|gel/.test(t)) return "tubes";
+    if (/ampoule|ampule/.test(t)) return "ampoules";
+    if (/vial|injection/.test(t)) return "vials";
+    return "";
+  }
   function normalizeExpiry(raw) {
     const t = String(raw || "").trim().toUpperCase().replace(/^(EXP(IRY)?(\s*DATE)?|USE\s*BY|BEST\s*BEFORE)[\s:.]*/, "");
     if (!t) return "";
