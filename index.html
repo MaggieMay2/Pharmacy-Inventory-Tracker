@@ -6,6 +6,8 @@
   <title>ShelfSafe: expiry and stock tracker for pharmacies</title>
   <meta name="description" content="Track drug expiry dates, stock levels and reorder points in a community pharmacy. Works offline with on-device AI.">
   <meta name="theme-color" content="#0F6B4F">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F6B4F'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='white'/%3E%3C/svg%3E">
   <style>
 /* ShelfSafe: white shelf, ink text, pharmacy green.
@@ -795,6 +797,14 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
 
   /* ---------- Stock list ---------- */
   let stockFilter = "all", stockQuery = "";
+  let installPrompt = null;
+  async function installApp() {
+    if (!installPrompt) return toast("Use Chrome's menu (⋮) and choose Install app or Add to Home screen.");
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    document.querySelectorAll(".install-btn").forEach((b) => { b.hidden = true; });
+  }
   function renderStock() {
     const flagged = flaggedBatches();
     const nExpired = flagged.filter((b) => statusOf(b.expiry) === "expired").length;
@@ -846,7 +856,8 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
     view.innerHTML =
       "<h1>Stock</h1>" +
       '<p class="lede">Every product, with the batch that expires soonest shown first.</p>' +
-      '<div class="btn-row actions"><a class="btn" href="#/receive">Receive stock</a></div>' +
+      '<div class="btn-row actions"><a class="btn" href="#/receive">Receive stock</a>' +
+      '<button type="button" class="btn btn-quiet install-btn"' + (installPrompt ? "" : " hidden") + ">Install app</button></div>" +
       bannerHtml +
       '<div class="filters" role="group" aria-label="Filter by expiry">' + filters + "</div>" +
       '<input class="search" type="search" placeholder="Search products" aria-label="Search products" value="' + esc(stockQuery) + '">' +
@@ -873,6 +884,7 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
       if (!(v > 0)) return toast("Enter a number of months above 0.");
       settings()[e.target.name] = v; save(); renderStock(); updateCount(); toast("Stock rules updated");
     });
+    view.querySelector(".install-btn").addEventListener("click", installApp);
     view.querySelector("#reset").addEventListener("click", () => {
       if (confirm("Replace everything on this device with the sample data?")) {
         db = sampleData(); save(); renderStock(); updateCount(); toast("Sample data restored");
@@ -1560,7 +1572,8 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
     "pack": "A photo of this batch's pack, so staff can match the shelf to the record, even if the brand or packaging changes.",
     "scan the pack": "Photograph the pack and the AI reads the batch number, expiry date and name for you. On a capable laptop it works offline, on the device.",
     "use laptop camera": "Scan the pack with this computer's webcam instead of choosing a photo file.",
-    "brand / manufacturer": "The brand name and the company that made this batch. The same medicine can come from different makers."
+    "brand / manufacturer": "The brand name and the company that made this batch. The same medicine can come from different makers.",
+    "install app": "Put ShelfSafe on this phone or computer like a normal app, with its own icon. It opens even without internet."
   };
   function termKey(text) {
     return text.toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[0-9]/g, " ").replace(/[.:]+$/, "").replace(/\s+/g, " ").trim();
@@ -1630,6 +1643,21 @@ dialog.cam video { display: block; width: 100%; max-height: 65vh; background: #0
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", () => { route(); view.focus({ preventScroll: true }); });
+
+  /* ---------- Installable app (works offline) ---------- */
+  // Chrome offers "Install" once the page has a manifest and a service worker (sw.js)
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); installPrompt = e;
+    document.querySelectorAll(".install-btn").forEach((b) => { b.hidden = false; });
+  });
+  window.addEventListener("appinstalled", () => {
+    installPrompt = null;
+    document.querySelectorAll(".install-btn").forEach((b) => { b.hidden = true; });
+    toast("ShelfSafe is installed. Look for its icon on your home screen or desktop.");
+  });
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { /* offline support unavailable */ }));
+  }
   try { if (!localStorage.getItem(STORE_KEY)) save(); } catch (e) { /* storage unavailable */ }
   if (navigator.onLine && location.protocol.startsWith("http")) setTimeout(() => loadAI().catch(() => {}), 1500);
   route();
