@@ -23,12 +23,17 @@ Built, deployed and tested on the live site (https://maggiemay2.github.io/shelfs
 - Scan the pack (Receive stock): Firebase AI Logic, PREFER_ON_DEVICE, same JSON schema on both paths; fills product, brand/manufacturer, batch number, expiry; creates a new product if it isn't listed; AI-filled fields highlighted for checking; "Read on this device" / "Read in the cloud" label from response.inferenceSource. Automatic retries when the cloud is busy, plus a "Try again" button. Clear error messages (App Check blocked by an extension, cloud busy, offline).
 - Photo sources: phone camera, laptop webcam ("Use laptop camera", getUserMedia, works offline) or file upload. Up to 2 photos per batch (front, then the flap with batch and expiry); a second photo fills only empty fields. Expiry text normalised to YYYY-MM (02/2027, FEB 2027, EXP 03 2028...).
 - Pack photos: shrunk to JPEG max 1024 px, stored on the device in IndexedDB (database "shelfsafe-photos", keyed by batch id); thumbnail on product page and stock list; tap to enlarge; "Add photo" for older batches.
+- Installable app (24 Nov): manifest.webmanifest, sw.js (service worker) and 3 icons. Opens offline once visited. "Install app" button on the Stock page; Chrome's menu works too.
+- Accounts (24 Nov): first visit shows a welcome page: Create an account, Sign in, or Try with sample data (no account; for judges). Firebase Authentication (email + password, password reset). Each pharmacy's records are kept in this browser (localStorage "shelfsafe.acct.{uid}") and backed up to Cloud Firestore at pharmacies/{uid} (profile) and pharmacies/{uid}/data/{suppliers|products|batches|receipts|issues|orders|removals|settings} as {value: ...}. Changes sync about 1 second after saving; offline changes are queued (Firestore persistent cache) and sent when back online. Newest copy wins (updatedAt) when the app opens. Account page: pharmacy name, sync status, Back up now, Sign out. A new account starts empty; existing own records on the device can be brought in at sign-up. Pack photos stay on the device (Cloud Storage would need the paid plan).
+- Firestore security rules: a signed-in user can read and write only pharmacies/{their uid} and below.
 - Security: App Check with a Fraud Defense (reCAPTCHA Enterprise) key for maggiemay2.github.io. Browser API key restricted to https://maggiemay2.github.io/* (API list left at Firebase's default).
 - Tested: cloud scanning works on an Android phone and in an incognito window on a laptop (Ciprofloxacin and Esomeprazole packs read correctly).
 
 Known issues:
 - In a normal Chrome window with an ad or privacy extension, scanning can fail with "App Check token is invalid". Incognito works; the app tells users this.
 - "Model is experiencing high demand" is temporary on Google's side; handled by the retries.
+- On Ifeoma's Android phone, Chrome's menu shows no Install / Add to Home screen option, although the app meets Chrome's install requirements. Installing works on the laptop.
+- Limits of the account version: one login per pharmacy (no separate staff logins yet); no live sync between two devices open at the same time (the newest copy wins when the app opens); each Firestore document is limited to 1 MB, so a very long issue history will need splitting later.
 
 ## Next (in order)
 1. Test on-device scanning on a borrowed capable laptop (Thu 26 / Fri 27 Nov) and record it: "Read on this device", then Wi-Fi off and a second scan still works.
@@ -37,7 +42,7 @@ Known issues:
 4. Optional: "What's next" section and a screenshot in the README.
 5. Final check from another device in a private window, then submit by Sun 29 Nov.
 - Ask in Discord #hackathon-help whether the public Firebase web config counts as a "production API key".
-- After the hackathon: AI-written supplier messages; backup/export of records and photos.
+- After the hackathon: staff logins within one pharmacy, live sync, photo backup, AI-written supplier messages, export of records.
 
 ## Calculations (plain code, never AI)
 - AMC = total issued in the last 3 months / 3
@@ -51,7 +56,8 @@ Known issues:
 - Expiry risk: in FEFO order, units of each batch that cannot be used before expiry at the current AMC
 
 ## Tools
-- One self-contained file: index.html (HTML, CSS and JavaScript together). Nothing to install, no build step. Upload it to GitHub to update the live site.
+- One main file: index.html (HTML, CSS and JavaScript together), plus manifest.webmanifest, sw.js and icon-192.png, icon-512.png, icon-maskable.png for installing. Nothing to install, no build step. Upload to GitHub to update the live site.
+- Firebase Authentication (email/password) and Cloud Firestore (location chosen by Ifeoma, production mode, rules above), both on the free Spark plan.
 - Firebase JS SDK 13.2.0 from the official gstatic CDN (dynamic import, preloaded when online).
 - Firebase AI Logic with hybrid inference (InferenceMode.PREFER_ON_DEVICE): Gemini Nano in Chrome on desktop when available, Gemini Developer API in the cloud otherwise. Cloud model: gemini-3.5-flash-lite (must be named explicitly). Structured JSON output for scans.
 - Firebase App Check: Fraud Defense (reCAPTCHA Enterprise), ReCaptchaEnterpriseProvider. Classic reCAPTCHA v3 is no longer accepted.
